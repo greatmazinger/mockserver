@@ -18,12 +18,12 @@ import org.mockserver.validator.jsonschema.JsonSchemaExpectationValidator;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.same;
 import static org.mockito.Mockito.*;
 import static org.mockito.MockitoAnnotations.initMocks;
 import static org.mockserver.character.Character.NEW_LINE;
@@ -42,12 +42,12 @@ public class ExpectationWithResponseSerializerTest {
         new HttpRequest()
             .withMethod("GET")
             .withPath("somePath")
-            .withQueryStringParameters(new Parameter("queryParameterName", Arrays.asList("queryParameterValue")))
+            .withQueryStringParameters(new Parameter("queryParameterName", Collections.singletonList("queryParameterValue")))
             .withBody(new StringBody("someBody"))
             .withHeaders(new Header("headerName", "headerValue"))
             .withCookies(new Cookie("cookieName", "cookieValue")),
         Times.once(),
-        TimeToLive.exactly(TimeUnit.HOURS, 2l))
+        TimeToLive.exactly(TimeUnit.HOURS, 2L))
         .thenRespond(
             new HttpResponse()
                 .withStatusCode(304)
@@ -85,10 +85,10 @@ public class ExpectationWithResponseSerializerTest {
             )
         )
         .setTimes(new org.mockserver.serialization.model.TimesDTO(Times.once()))
-        .setTimeToLive(new TimeToLiveDTO(TimeToLive.exactly(TimeUnit.HOURS, 2l)));
+        .setTimeToLive(new TimeToLiveDTO(TimeToLive.exactly(TimeUnit.HOURS, 2L)));
 
     @Rule
-    public ExpectedException thrown = ExpectedException.none();
+    public final ExpectedException thrown = ExpectedException.none();
 
     @Mock
     private ObjectMapper objectMapper;
@@ -122,6 +122,7 @@ public class ExpectationWithResponseSerializerTest {
     }
 
     @Test
+    @SuppressWarnings("RedundantArrayCreation")
     public void shouldSerializeArray() throws IOException {
         // given
         when(objectMapper.writerWithDefaultPrettyPrinter()).thenReturn(objectWriter);
@@ -155,7 +156,7 @@ public class ExpectationWithResponseSerializerTest {
         when(objectMapper.readValue(eq("requestBytes"), same(ExpectationDTO.class))).thenReturn(fullExpectationDTO);
 
         // when
-        Expectation[] expectations = expectationSerializer.deserializeArray("requestBytes");
+        Expectation[] expectations = expectationSerializer.deserializeArray("requestBytes", false);
 
         // then
         assertArrayEquals(new Expectation[]{fullExpectation, fullExpectation}, expectations);
@@ -191,6 +192,6 @@ public class ExpectationWithResponseSerializerTest {
             "]");
 
         // when
-        expectationSerializer.deserializeArray("requestBytes");
+        expectationSerializer.deserializeArray("requestBytes", false);
     }
 }

@@ -14,9 +14,8 @@ import org.mockserver.model.PortBinding;
 import java.io.IOException;
 import java.util.Arrays;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.same;
 import static org.mockito.Mockito.*;
 import static org.mockito.MockitoAnnotations.initMocks;
 import static org.mockserver.model.PortBinding.portBinding;
@@ -29,7 +28,7 @@ public class PortBindingSerializerTest {
     private final PortBinding fullPortBinding = new PortBinding().setPorts(Arrays.asList(1, 2, 3, 4, 5));
 
     @Rule
-    public ExpectedException thrown = ExpectedException.none();
+    public final ExpectedException thrown = ExpectedException.none();
     @Mock
     private ObjectMapper objectMapper;
     @Mock
@@ -85,7 +84,7 @@ public class PortBindingSerializerTest {
     public void serializeObjectHandlesException() throws IOException {
         // given
         thrown.expect(RuntimeException.class);
-        thrown.expectMessage("Exception while serializing portBinding to JSON with value { }");
+        thrown.expectMessage(containsString("Exception while serializing portBinding to JSON with value"));
         // and
         when(objectMapper.writerWithDefaultPrettyPrinter()).thenReturn(objectWriter);
         when(objectWriter.writeValueAsString(any(PortBinding.class))).thenThrow(new RuntimeException("TEST EXCEPTION"));

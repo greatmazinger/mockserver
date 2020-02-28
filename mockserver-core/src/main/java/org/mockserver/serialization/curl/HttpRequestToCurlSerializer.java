@@ -1,11 +1,10 @@
 package org.mockserver.serialization.curl;
 
-import com.google.common.base.Strings;
 import io.netty.handler.codec.http.cookie.ClientCookieEncoder;
 import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.DefaultCookie;
-import org.apache.commons.lang3.StringUtils;
-import org.mockserver.codec.mappers.MockServerHttpRequestToFullHttpRequest;
+import org.mockserver.logging.MockServerLogger;
+import org.mockserver.mappers.MockServerHttpRequestToFullHttpRequest;
 import org.mockserver.model.Header;
 import org.mockserver.model.HttpRequest;
 import org.mockserver.model.NottableString;
@@ -17,11 +16,18 @@ import java.util.List;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.COOKIE;
 import static io.netty.handler.codec.http.HttpHeaderNames.HOST;
+import static org.apache.commons.lang3.StringUtils.*;
 
 /**
  * @author jamesdbloom
  */
 public class HttpRequestToCurlSerializer {
+
+    private final MockServerLogger mockServerLogger;
+
+    public HttpRequestToCurlSerializer(MockServerLogger mockServerLogger) {
+        this.mockServerLogger = mockServerLogger;
+    }
 
     public String toCurl(HttpRequest request) {
         return toCurl(request, null);
@@ -30,7 +36,7 @@ public class HttpRequestToCurlSerializer {
     public String toCurl(HttpRequest request, @Nullable InetSocketAddress remoteAddress) {
         StringBuilder curlString = new StringBuilder();
         if (request != null) {
-            if (!Strings.isNullOrEmpty(request.getFirstHeader(HOST.toString())) || remoteAddress != null) {
+            if (isNotBlank(request.getFirstHeader(HOST.toString())) || remoteAddress != null) {
                 boolean isSsl = request.isSecure() != null && request.isSecure();
                 curlString.append("curl -v");
                 curlString.append(" ");
@@ -57,8 +63,8 @@ public class HttpRequestToCurlSerializer {
                     }
                 }
                 curlString.append(getCookieHeader(request));
-                if (!Strings.isNullOrEmpty(request.getBodyAsString())){
-                    curlString.append(" --data '").append(request.getBodyAsString().replace("\'", "\\'")).append("'");
+                if (isNotBlank(request.getBodyAsString())) {
+                    curlString.append(" --data '").append(request.getBodyAsString().replace("'", "\\'")).append("'");
                 }
             } else {
                 curlString.append("no host header or remote address specified");
@@ -70,14 +76,14 @@ public class HttpRequestToCurlSerializer {
     }
 
     private boolean hasDefaultMethod(HttpRequest request) {
-        return Strings.isNullOrEmpty(request.getMethod().getValue()) || request.getMethod().getValue().equalsIgnoreCase("GET");
+        return request.getMethod() == null || isBlank(request.getMethod().getValue()) || request.getMethod().getValue().equalsIgnoreCase("GET");
     }
 
     private String getUri(HttpRequest request) {
-        String uri = new MockServerHttpRequestToFullHttpRequest().getURI(request);
-        if (Strings.isNullOrEmpty(uri)) {
+        String uri = new MockServerHttpRequestToFullHttpRequest(mockServerLogger).getURI(request);
+        if (isBlank(uri)) {
             uri = "/";
-        } else if (!StringUtils.startsWith(uri, "/")) {
+        } else if (!startsWith(uri, "/")) {
             uri = "/" + uri;
         }
         return uri;
@@ -85,7 +91,7 @@ public class HttpRequestToCurlSerializer {
 
     private String getHostAndPort(HttpRequest request, InetSocketAddress remoteAddress) {
         String host = request.getFirstHeader("Host");
-        if (Strings.isNullOrEmpty(host)) {
+        if (isBlank(host)) {
             host = remoteAddress.getHostName() + ":" + remoteAddress.getPort();
         }
         return host;

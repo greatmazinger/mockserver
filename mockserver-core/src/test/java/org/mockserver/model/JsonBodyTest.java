@@ -1,6 +1,5 @@
 package org.mockserver.model;
 
-import com.google.common.net.MediaType;
 import org.junit.Test;
 import org.mockserver.matchers.MatchType;
 
@@ -44,7 +43,7 @@ public class JsonBodyTest {
     @Test
     public void shouldReturnValuesSetInConstructorWithMatchTypeAndCharset() {
         // when
-        JsonBody jsonBody = new JsonBody("some_body", StandardCharsets.UTF_16, MatchType.STRICT);
+        JsonBody jsonBody = new JsonBody("some_body", null, (StandardCharsets.UTF_16 != null ? MediaType.create("application", "json").withCharset(StandardCharsets.UTF_16) : null), MatchType.STRICT);
 
         // then
         assertThat(jsonBody.getValue(), is("some_body"));
@@ -56,7 +55,7 @@ public class JsonBodyTest {
     @Test
     public void shouldReturnValuesSetInConstructorWithMatchTypeAndMediaType() {
         // when
-        JsonBody jsonBody = new JsonBody("some_body", MediaType.JSON_UTF_8, MatchType.STRICT);
+        JsonBody jsonBody = new JsonBody("some_body", null, MediaType.JSON_UTF_8, MatchType.STRICT);
 
         // then
         assertThat(jsonBody.getValue(), is("some_body"));
@@ -186,7 +185,7 @@ public class JsonBodyTest {
         assertThat(jsonBody.getContentType(), is("application/json; charset=utf-16"));
     }
 
-    public class TestObject {
+    public static class TestObject {
         private String fieldOne = "valueOne";
         private String fieldTwo = "valueTwo";
 

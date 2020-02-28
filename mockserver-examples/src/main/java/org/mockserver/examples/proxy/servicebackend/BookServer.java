@@ -10,6 +10,9 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.*;
 import org.mockserver.examples.proxy.json.ObjectMapperFactory;
 import org.mockserver.examples.proxy.model.Book;
+import org.mockserver.logging.MockServerLogger;
+import org.mockserver.scheduler.Scheduler;
+import org.mockserver.socket.tls.NettySslContextFactory;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -23,7 +26,6 @@ import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
-import static org.mockserver.socket.tls.NettySslContextFactory.nettySslContextFactory;
 
 /**
  * @author jamesdbloom
@@ -35,10 +37,12 @@ public class BookServer {
     private final ObjectMapper objectMapper = ObjectMapperFactory.createObjectMapper();
     private final int httpPort;
     private final boolean secure;
+    private final NettySslContextFactory nettySslContextFactory;
 
-    public BookServer(int httpPort, boolean secure) {
+    BookServer(int httpPort, boolean secure) {
         this.httpPort = httpPort;
         this.secure = secure;
+        this.nettySslContextFactory = new NettySslContextFactory(new MockServerLogger());
     }
 
     @PostConstruct
@@ -46,36 +50,36 @@ public class BookServer {
         if (serverBootstrap == null) {
             try {
                 serverBootstrap = new ServerBootstrap()
-                        .group(new NioEventLoopGroup(1))
-                        .channel(NioServerSocketChannel.class)
-                        .childHandler(new ChannelInitializer<SocketChannel>() {
-                            @Override
-                            public void initChannel(SocketChannel ch) throws Exception {
-                                ChannelPipeline pipeline = ch.pipeline();
+                    .group(new NioEventLoopGroup(2, new Scheduler.SchedulerThreadFactory(this.getClass().getSimpleName() + "-eventLoop")))
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        public void initChannel(SocketChannel ch) {
+                            ChannelPipeline pipeline = ch.pipeline();
 
-                                // add HTTPS support
-                                if (secure) {
-                                    pipeline.addLast(nettySslContextFactory().createServerSslContext().newHandler(ch.alloc()));
-                                }
-
-                                pipeline.addLast(new HttpServerCodec());
-                                pipeline.addLast(new HttpContentDecompressor());
-                                pipeline.addLast(new HttpObjectAggregator(Integer.MAX_VALUE));
-                                pipeline.addLast(new BookHandler());
+                            // add HTTPS support
+                            if (secure) {
+                                pipeline.addLast(nettySslContextFactory.createServerSslContext().newHandler(ch.alloc()));
                             }
-                        });
+
+                            pipeline.addLast(new HttpServerCodec());
+                            pipeline.addLast(new HttpContentDecompressor());
+                            pipeline.addLast(new HttpObjectAggregator(Integer.MAX_VALUE));
+                            pipeline.addLast(new BookHandler());
+                        }
+                    });
 
             } catch (Exception e) {
                 throw new RuntimeException("Exception starting BookServer", e);
             }
         }
+        System.out.println("starting service on port: " + httpPort);
         serverBootstrap.bind(httpPort);
-        System.gc();
         TimeUnit.SECONDS.sleep(3);
     }
 
     private Map<String, Book> createBookData() {
-        Map<String, Book> booksDB = new HashMap<String, Book>();
+        Map<String, Book> booksDB = new HashMap<>();
         booksDB.put("1", new Book(1, "Xenophon's imperial fiction : on the education of Cyrus", "James Tatum", "0691067570", "1989"));
         booksDB.put("2", new Book(2, "You are here : personal geographies and other maps of the imagination", "Katharine A. Harmon", "1568984308", "2004"));
         booksDB.put("3", new Book(3, "You just don't understand : women and men in conversation", "Deborah Tannen", "0345372050", "1990"));
@@ -92,8 +96,8 @@ public class BookServer {
     }
 
     @PreDestroy
-    public void stopServer() throws Exception {
-
+    public void stopServer() {
+        System.out.println("stopping service on port: " + httpPort);
     }
 
     private class BookHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
@@ -108,11 +112,11 @@ public class BookServer {
             FullHttpResponse response = null;
             if (request.uri().startsWith("/get_books")) {
                 response = new DefaultFullHttpResponse(HTTP_1_1, OK,
-                        Unpooled.wrappedBuffer(
-                                objectMapper
-                                        .writerWithDefaultPrettyPrinter()
-                                        .writeValueAsBytes(booksDB.values())
-                        )
+                    Unpooled.wrappedBuffer(
+                        objectMapper
+                            .writerWithDefaultPrettyPrinter()
+                            .writeValueAsBytes(booksDB.values())
+                    )
                 );
                 response.headers().set(CONTENT_TYPE, "application/json");
                 response.headers().set(CONTENT_LENGTH, response.content().readableBytes());
@@ -122,11 +126,11 @@ public class BookServer {
                     Book book = booksDB.get(id.get(0));
                     if (book != null) {
                         response = new DefaultFullHttpResponse(HTTP_1_1, OK,
-                                Unpooled.wrappedBuffer(
-                                        objectMapper
-                                                .writerWithDefaultPrettyPrinter()
-                                                .writeValueAsBytes(book)
-                                )
+                            Unpooled.wrappedBuffer(
+                                objectMapper
+                                    .writerWithDefaultPrettyPrinter()
+                                    .writeValueAsBytes(book)
+                            )
                         );
                         response.headers().set(CONTENT_TYPE, "application/json");
                         response.headers().set(CONTENT_LENGTH, response.content().readableBytes());
@@ -140,7 +144,7 @@ public class BookServer {
         }
 
         @Override
-        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
             cause.printStackTrace();
             ctx.close();
         }

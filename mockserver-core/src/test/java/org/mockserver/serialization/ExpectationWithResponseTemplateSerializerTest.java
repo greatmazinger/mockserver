@@ -25,7 +25,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.same;
 import static org.mockito.Mockito.*;
 import static org.mockito.MockitoAnnotations.initMocks;
 import static org.mockserver.character.Character.NEW_LINE;
@@ -50,7 +49,7 @@ public class ExpectationWithResponseTemplateSerializerTest {
             .withHeaders(new Header("headerName", "headerValue"))
             .withCookies(new Cookie("cookieName", "cookieValue")),
         Times.once(),
-        TimeToLive.exactly(HOURS, 2l))
+        TimeToLive.exactly(HOURS, 2L))
         .thenRespond(
             template(HttpTemplate.TemplateType.JAVASCRIPT, "some_random_template")
                 .withDelay(SECONDS, 5)
@@ -79,10 +78,10 @@ public class ExpectationWithResponseTemplateSerializerTest {
             )
         )
         .setTimes(new org.mockserver.serialization.model.TimesDTO(Times.once()))
-        .setTimeToLive(new TimeToLiveDTO(TimeToLive.exactly(HOURS, 2l)));
+        .setTimeToLive(new TimeToLiveDTO(TimeToLive.exactly(HOURS, 2L)));
 
     @Rule
-    public ExpectedException thrown = ExpectedException.none();
+    public final ExpectedException thrown = ExpectedException.none();
 
     @Mock
     private ObjectMapper objectMapper;
@@ -149,7 +148,7 @@ public class ExpectationWithResponseTemplateSerializerTest {
         when(objectMapper.readValue(eq("requestBytes"), same(ExpectationDTO.class))).thenReturn(fullExpectationDTO);
 
         // when
-        Expectation[] expectations = expectationSerializer.deserializeArray("requestBytes");
+        Expectation[] expectations = expectationSerializer.deserializeArray("requestBytes", false);
 
         // then
         assertArrayEquals(new Expectation[]{fullExpectation, fullExpectation}, expectations);
@@ -185,6 +184,6 @@ public class ExpectationWithResponseTemplateSerializerTest {
             "]");
 
         // when
-        expectationSerializer.deserializeArray("requestBytes");
+        expectationSerializer.deserializeArray("requestBytes", false);
     }
 }

@@ -4,6 +4,7 @@ import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaders;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.ConnectionOptions;
 import org.mockserver.model.HttpResponse;
 
@@ -24,13 +25,13 @@ import static org.mockserver.model.StringBody.exact;
  */
 public class MockServerResponseEncoderContentLengthTest {
 
-    private MockServerResponseEncoder mockServerResponseEncoder;
+    private MockServerToNettyResponseEncoder mockServerResponseEncoder;
     private List<Object> output;
     private HttpResponse httpResponse;
 
     @Before
     public void setupFixture() {
-        mockServerResponseEncoder = new MockServerResponseEncoder();
+        mockServerResponseEncoder = new MockServerToNettyResponseEncoder(new MockServerLogger());
         output = new ArrayList<Object>();
         httpResponse = response();
     }

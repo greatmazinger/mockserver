@@ -3,16 +3,15 @@ package org.mockserver.model;
 import junit.framework.TestCase;
 import org.junit.Test;
 
-import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.collection.IsEmptyCollection.empty;
 import static org.hamcrest.core.Is.is;
 import static org.hamcrest.core.IsSame.sameInstance;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.*;
 import static org.mockserver.character.Character.NEW_LINE;
 import static org.mockserver.model.HttpRequest.request;
 import static org.mockserver.model.NottableString.string;
@@ -24,7 +23,7 @@ public class HttpRequestTest {
 
     @Test
     public void shouldAlwaysCreateNewObject() {
-        assertEquals(new HttpRequest().request(), HttpRequest.request());
+        assertEquals(request(), HttpRequest.request());
         assertNotSame(HttpRequest.request(), HttpRequest.request());
     }
 
@@ -53,7 +52,7 @@ public class HttpRequestTest {
     @Test
     public void returnsQueryStringParameters() {
         assertEquals(new Parameter("name", "value"), new HttpRequest().withQueryStringParameters(new Parameter("name", "value")).getQueryStringParameterList().get(0));
-        assertEquals(new Parameter("name", "value"), new HttpRequest().withQueryStringParameters(Arrays.asList(new Parameter("name", "value"))).getQueryStringParameterList().get(0));
+        assertEquals(new Parameter("name", "value"), new HttpRequest().withQueryStringParameters(Collections.singletonList(new Parameter("name", "value"))).getQueryStringParameterList().get(0));
         assertEquals(new Parameter("name", "value"), new HttpRequest().withQueryStringParameter(new Parameter("name", "value")).getQueryStringParameterList().get(0));
         assertEquals(new Parameter("name", "value"), new HttpRequest().withQueryStringParameter("name", "value").getQueryStringParameterList().get(0));
         assertEquals(new Parameter("name", "value_one", "value_two"), new HttpRequest().withQueryStringParameter(new Parameter("name", "value_one")).withQueryStringParameter(new Parameter("name", "value_two")).getQueryStringParameterList().get(0));
@@ -68,7 +67,7 @@ public class HttpRequestTest {
     @Test
     public void returnsHeaders() {
         assertEquals(new Header("name", "value"), new HttpRequest().withHeaders(new Header("name", "value")).getHeaderList().get(0));
-        assertEquals(new Header("name", "value"), new HttpRequest().withHeaders(Arrays.asList(new Header("name", "value"))).getHeaderList().get(0));
+        assertEquals(new Header("name", "value"), new HttpRequest().withHeaders(Collections.singletonList(new Header("name", "value"))).getHeaderList().get(0));
         assertEquals(new Header("name", "value"), new HttpRequest().withHeader(new Header("name", "value")).getHeaderList().get(0));
         assertEquals(new Header("name", "value"), new HttpRequest().withHeader("name", "value").getHeaderList().get(0));
         assertEquals(new Header("name", ".*"), new HttpRequest().withHeader(string("name")).getHeaderList().get(0));
@@ -89,11 +88,30 @@ public class HttpRequestTest {
     }
 
     @Test
+    public void shouldContainHeaderByName() {
+        assertTrue(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader("name"));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader("names"));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader("value1"));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader(null));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader(""));
+    }
+
+    @Test
+    public void shouldContainHeaderByNameAndValue() {
+        assertTrue(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader("name", "value1"));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader("names", "value1"));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader("name", "value12"));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader("value1", "name"));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader(null, null));
+        assertFalse(new HttpRequest().withHeaders(new Header("name", "value1")).containsHeader("", ""));
+    }
+
+    @Test
     public void returnsCookies() {
         assertEquals(new Cookie("name", "value"), new HttpRequest().withCookies(new Cookie("name", "value")).getCookieList().get(0));
         assertEquals(new Cookie("name", ""), new HttpRequest().withCookies(new Cookie("name", "")).getCookieList().get(0));
         assertEquals(new Cookie("name", null), new HttpRequest().withCookies(new Cookie("name", null)).getCookieList().get(0));
-        assertEquals(new Cookie("name", "value"), new HttpRequest().withCookies(Arrays.asList(new Cookie("name", "value"))).getCookieList().get(0));
+        assertEquals(new Cookie("name", "value"), new HttpRequest().withCookies(Collections.singletonList(new Cookie("name", "value"))).getCookieList().get(0));
 
         assertEquals(new Cookie("name", "value"), new HttpRequest().withCookie(new Cookie("name", "value")).getCookieList().get(0));
         assertEquals(new Cookie("name", "value"), new HttpRequest().withCookie("name", "value").getCookieList().get(0));
@@ -151,6 +169,79 @@ public class HttpRequestTest {
         // then
         assertThat(requestOne, not(sameInstance(requestTwo)));
         assertThat(requestOne, is(requestTwo));
+    }
+
+    @Test
+    public void shouldUpdate() {
+        // given
+        HttpRequest requestOne = request()
+            .withPath("some_path")
+            .withBody("some_body")
+            .withMethod("METHOD")
+            .withHeader("some_header", "some_header_value")
+            .withSecure(true)
+            .withCookie("some_cookie", "some_cookie_value")
+            .withQueryStringParameter("some_parameter", "some_parameter_value")
+            .withKeepAlive(true);
+        HttpRequest requestTwo = request()
+            .withPath("some_path_two")
+            .withBody("some_body_two")
+            .withMethod("METHO_TWO")
+            .withHeader("some_header_two", "some_header_value_two")
+            .withSecure(false)
+            .withCookie("some_cookie_two", "some_cookie_value_two")
+            .withQueryStringParameter("some_parameter_two", "some_parameter_value_two")
+            .withKeepAlive(false);
+
+        // when
+        requestOne.update(requestTwo);
+
+        // then
+        assertThat(requestOne, is(
+            request()
+                .withPath("some_path_two")
+                .withBody("some_body_two")
+                .withMethod("METHO_TWO")
+                .withHeader("some_header", "some_header_value")
+                .withHeader("some_header_two", "some_header_value_two")
+                .withSecure(false)
+                .withCookie("some_cookie", "some_cookie_value")
+                .withCookie("some_cookie_two", "some_cookie_value_two")
+                .withQueryStringParameter("some_parameter", "some_parameter_value")
+                .withQueryStringParameter("some_parameter_two", "some_parameter_value_two")
+                .withKeepAlive(false)
+        ));
+    }
+
+    @Test
+    public void shouldUpdateEmptyRequest() {
+        // given
+        HttpRequest requestOne = request();
+        HttpRequest requestTwo = request()
+            .withPath("some_path_two")
+            .withBody("some_body_two")
+            .withMethod("METHO_TWO")
+            .withHeader("some_header_two", "some_header_value_two")
+            .withSecure(false)
+            .withCookie("some_cookie_two", "some_cookie_value_two")
+            .withQueryStringParameter("some_parameter_two", "some_parameter_value_two")
+            .withKeepAlive(false);
+
+        // when
+        requestOne.update(requestTwo);
+
+        // then
+        assertThat(requestOne, is(
+            request()
+                .withPath("some_path_two")
+                .withBody("some_body_two")
+                .withMethod("METHO_TWO")
+                .withHeader("some_header_two", "some_header_value_two")
+                .withSecure(false)
+                .withCookie("some_cookie_two", "some_cookie_value_two")
+                .withQueryStringParameter("some_parameter_two", "some_parameter_value_two")
+                .withKeepAlive(false)
+        ));
     }
 
 }

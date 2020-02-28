@@ -1,11 +1,12 @@
 package org.mockserver.integration;
 
-import com.google.common.util.concurrent.SettableFuture;
 import org.mockserver.client.MockServerClient;
-import org.mockserver.mockserver.MockServer;
+import org.mockserver.netty.MockServer;
 
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 
 /**
  * @author jamesdbloom
@@ -15,15 +16,15 @@ public class ClientAndServer extends MockServerClient {
     private final MockServer mockServer;
 
     public ClientAndServer(Integer... ports) {
-        super(SettableFuture.<Integer>create());
+        super(new CompletableFuture<>());
         mockServer = new MockServer(ports);
-        ((SettableFuture) portFuture).set(mockServer.getLocalPort());
+        portFuture.complete(mockServer.getLocalPort());
     }
 
     public ClientAndServer(String remoteHost, Integer remotePort, Integer... ports) {
-        super(SettableFuture.<Integer>create());
+        super(new CompletableFuture<>());
         mockServer = new MockServer(remotePort, remoteHost, ports);
-        ((SettableFuture) portFuture).set(mockServer.getLocalPort());
+        portFuture.complete(mockServer.getLocalPort());
     }
 
     public ClientAndServer startClientAndServer(List<Integer> ports) {
@@ -38,14 +39,32 @@ public class ClientAndServer extends MockServerClient {
         return new ClientAndServer(remoteHost, remotePort, port);
     }
 
+    @SuppressWarnings("deprecation")
     public boolean isRunning() {
         return mockServer.isRunning();
+    }
+
+    public boolean hasStarted() {
+        return mockServer.isRunning();
+    }
+
+    @Override
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public Future stopAsync() {
+        Future<String> stopAsync = mockServer.stopAsync();
+        if (stopAsync instanceof CompletableFuture) {
+            ((CompletableFuture<String>) stopAsync).thenAccept(ignore -> super.stop());
+        } else {
+            // no need to wait for client to clean up event loop
+            super.stopAsync();
+        }
+        return stopAsync;
     }
 
     @Override
     public void stop() {
         mockServer.stop();
-        stop(true);
+        super.stop();
     }
 
     /**

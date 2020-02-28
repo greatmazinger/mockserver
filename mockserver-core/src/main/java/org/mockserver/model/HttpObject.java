@@ -8,6 +8,7 @@ import java.util.List;
 /**
  * @author jamesdbloom
  */
+@SuppressWarnings("rawtypes")
 public interface HttpObject<T extends HttpObject, B extends Body> {
 
     T withBody(String body);
@@ -39,6 +40,8 @@ public interface HttpObject<T extends HttpObject, B extends Body> {
     T withHeader(String name, String... values);
 
     T withHeader(NottableString name, NottableString... values);
+
+    T withContentType(MediaType mediaType);
 
     T replaceHeader(Header header);
 

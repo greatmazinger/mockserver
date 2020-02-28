@@ -4,24 +4,24 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockserver.websocket.WebSocketClient;
+import org.mockserver.logging.MockServerLogger;
 import org.mockserver.mock.Expectation;
 import org.mockserver.model.*;
-
-import java.util.concurrent.Semaphore;
+import org.mockserver.closurecallback.websocketclient.WebSocketClient;
 
 import static org.mockito.Matchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.MockitoAnnotations.initMocks;
+import static org.mockserver.model.HttpClassCallback.callback;
+import static org.mockserver.model.HttpError.error;
+import static org.mockserver.model.HttpForward.forward;
 import static org.mockserver.model.HttpOverrideForwardedRequest.forwardOverriddenRequest;
 import static org.mockserver.model.HttpRequest.request;
 import static org.mockserver.model.HttpResponse.response;
-import static org.mockserver.model.HttpForward.forward;
-import static org.mockserver.model.HttpError.error;
-import static org.mockserver.model.HttpClassCallback.callback;
 import static org.mockserver.model.HttpTemplate.template;
 
+@SuppressWarnings({"unused", "rawtypes"})
 public class ForwardChainExpectationTest {
 
     private MockServerClient mockAbstractClient;
@@ -38,8 +38,7 @@ public class ForwardChainExpectationTest {
     public void setupMocks() {
         mockAbstractClient = mock(MockServerClient.class);
         mockExpectation = mock(Expectation.class);
-        Semaphore availableWebSocketCallbackRegistrations = new Semaphore(1);
-        forwardChainExpectation = new ForwardChainExpectation(mockAbstractClient, mockExpectation, availableWebSocketCallbackRegistrations);
+        forwardChainExpectation = new ForwardChainExpectation(new MockServerLogger(), new MockServerEventBus(), mockAbstractClient, mockExpectation);
         initMocks(this);
     }
 

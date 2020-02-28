@@ -4,9 +4,11 @@ import org.mockserver.client.MockServerClient;
 
 /**
  * @author jamesdbloom
+ * @deprecated use org.mockserver.client.initialize.PluginExpectationInitializer instead
  */
+@Deprecated
 public interface ExpectationInitializer {
 
-    public void initializeExpectations(MockServerClient mockServerClient);
+    void initializeExpectations(MockServerClient mockServerClient);
 
 }

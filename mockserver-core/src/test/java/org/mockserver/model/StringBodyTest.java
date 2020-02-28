@@ -1,6 +1,5 @@
 package org.mockserver.model;
 
-import com.google.common.net.MediaType;
 import org.junit.Test;
 
 import java.nio.charset.Charset;
@@ -11,7 +10,6 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotSame;
-import static org.mockserver.model.BinaryBody.binary;
 import static org.mockserver.model.StringBody.exact;
 import static org.mockserver.model.StringBody.subString;
 
@@ -22,7 +20,7 @@ public class StringBodyTest {
 
     @Test
     public void shouldAlwaysCreateNewObject() {
-        assertEquals(new StringBody("some_body").exact("some_body"), exact("some_body"));
+        assertEquals(exact("some_body"), exact("some_body"));
         assertNotSame(exact("some_body"), exact("some_body"));
     }
 
@@ -42,7 +40,7 @@ public class StringBodyTest {
     @Test
     public void shouldReturnValuesSetInConstructorWithSubString() {
         // when
-        StringBody stringBody = new StringBody("some_body", true);
+        StringBody stringBody = new StringBody("some_body", null, true, (MediaType) null);
 
         // then
         assertThat(stringBody.getValue(), is("some_body"));

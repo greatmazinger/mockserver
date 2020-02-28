@@ -4,12 +4,16 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.mockserver.matchers.TimeToLive;
 import org.mockserver.matchers.Times;
 import org.mockserver.model.*;
+import org.mockserver.uuid.UUIDService;
 
 /**
  * @author jamesdbloom
  */
+@SuppressWarnings("rawtypes")
 public class Expectation extends ObjectWithJsonToString {
 
+    private static final String[] excludedFields = {"id"};
+    private String id;
     private final HttpRequest httpRequest;
     private final Times times;
     private final TimeToLive timeToLive;
@@ -24,6 +28,14 @@ public class Expectation extends ObjectWithJsonToString {
     private HttpOverrideForwardedRequest httpOverrideForwardedRequest;
     private HttpError httpError;
 
+    public static Expectation when(HttpRequest httpRequest) {
+        return new Expectation(httpRequest);
+    }
+
+    public static Expectation when(HttpRequest httpRequest, Times times, TimeToLive timeToLive) {
+        return new Expectation(httpRequest, times, timeToLive);
+    }
+
     public Expectation(HttpRequest httpRequest) {
         this(httpRequest, Times.unlimited(), TimeToLive.unlimited());
     }
@@ -32,6 +44,18 @@ public class Expectation extends ObjectWithJsonToString {
         this.httpRequest = httpRequest;
         this.times = times;
         this.timeToLive = timeToLive;
+    }
+
+    public String getId() {
+        if (id == null) {
+            id = UUIDService.getUUID();
+        }
+        return id;
+    }
+
+    public Expectation withId(String key) {
+        this.id = key;
+        return this;
     }
 
     public HttpRequest getHttpRequest() {
@@ -176,7 +200,8 @@ public class Expectation extends ObjectWithJsonToString {
 
     public Expectation thenForward(HttpObjectCallback httpObjectCallback) {
         if (httpObjectCallback != null) {
-            httpObjectCallback.withActionType(Action.Type.FORWARD_OBJECT_CALLBACK);
+            httpObjectCallback
+                .withActionType(Action.Type.FORWARD_OBJECT_CALLBACK);
             validationErrors("a forward object callback", httpObjectCallback.getType());
             this.httpForwardObjectCallback = httpObjectCallback;
         }
@@ -245,19 +270,22 @@ public class Expectation extends ObjectWithJsonToString {
         return timeToLive == null || timeToLive.stillAlive();
     }
 
-    public Expectation decrementRemainingMatches() {
+    public boolean decrementRemainingMatches() {
         if (times != null) {
-            times.decrement();
+            return times.decrement();
         }
-        return this;
+        return false;
     }
 
+    @SuppressWarnings("PointlessNullCheck")
     public boolean contains(HttpRequest httpRequest) {
         return httpRequest != null && this.httpRequest.equals(httpRequest);
     }
 
+    @SuppressWarnings("MethodDoesntCallSuperMethod")
     public Expectation clone() {
         return new Expectation(httpRequest, times.clone(), timeToLive)
+            .withId(id)
             .thenRespond(httpResponse)
             .thenRespond(httpResponseTemplate)
             .thenRespond(httpResponseClassCallback)
@@ -268,5 +296,11 @@ public class Expectation extends ObjectWithJsonToString {
             .thenForward(httpForwardObjectCallback)
             .thenForward(httpOverrideForwardedRequest)
             .thenError(httpError);
+    }
+
+    @Override
+    @JsonIgnore
+    public String[] fieldsExcludedFromEqualsAndHashCode() {
+        return excludedFields;
     }
 }

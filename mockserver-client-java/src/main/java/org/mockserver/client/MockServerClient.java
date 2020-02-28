@@ -1,18 +1,19 @@
 package org.mockserver.client;
 
-import com.google.common.base.Strings;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
-import org.apache.commons.lang3.StringUtils;
 import org.mockserver.Version;
 import org.mockserver.client.MockServerEventBus.EventType;
 import org.mockserver.configuration.ConfigurationProperties;
+import org.mockserver.log.model.LogEntry;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.matchers.TimeToLive;
 import org.mockserver.matchers.Times;
 import org.mockserver.mock.Expectation;
 import org.mockserver.model.*;
+import org.mockserver.scheduler.Scheduler;
 import org.mockserver.serialization.*;
+import org.mockserver.socket.tls.NettySslContextFactory;
 import org.mockserver.stop.Stoppable;
 import org.mockserver.verify.Verification;
 import org.mockserver.verify.VerificationSequence;
@@ -21,40 +22,46 @@ import org.mockserver.verify.VerificationTimes;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
+import java.util.Map;
+import java.util.concurrent.*;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.HOST;
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.apache.commons.lang3.StringUtils.*;
+import static org.mockserver.configuration.ConfigurationProperties.maxFutureTimeout;
 import static org.mockserver.formatting.StringFormatter.formatLogMessage;
 import static org.mockserver.mock.HttpStateHandler.LOG_SEPARATOR;
 import static org.mockserver.model.HttpRequest.request;
+import static org.mockserver.model.MediaType.APPLICATION_JSON_UTF_8;
 import static org.mockserver.model.PortBinding.portBinding;
 import static org.mockserver.verify.Verification.verification;
 import static org.mockserver.verify.VerificationTimes.exactly;
+import static org.slf4j.event.Level.*;
 
 /**
  * @author jamesdbloom
  */
 public class MockServerClient implements Stoppable {
 
-    protected final MockServerLogger mockServerLogger = new MockServerLogger(this.getClass());
-    private final EventLoopGroup eventLoopGroup = new NioEventLoopGroup();
-    private final Semaphore availableWebSocketCallbackRegistrations = new Semaphore(1);
+    private static final MockServerLogger MOCK_SERVER_LOGGER = new MockServerLogger(MockServerClient.class);
+    private static final Map<Integer, MockServerEventBus> EVENT_BUS_MAP = new ConcurrentHashMap<>();
+    private final EventLoopGroup eventLoopGroup = new NioEventLoopGroup(5, new Scheduler.SchedulerThreadFactory(this.getClass().getSimpleName() + "-eventLoop"));
     private final String host;
     private final String contextPath;
     private final Class<MockServerClient> clientClass;
-    protected Future<Integer> portFuture;
+    protected CompletableFuture<Integer> portFuture;
     private Boolean secure;
     private Integer port;
-    private NettyHttpClient nettyHttpClient = new NettyHttpClient(eventLoopGroup, null);
-    private HttpRequestSerializer httpRequestSerializer = new HttpRequestSerializer(mockServerLogger);
-    private PortBindingSerializer portBindingSerializer = new PortBindingSerializer(mockServerLogger);
-    private ExpectationSerializer expectationSerializer = new ExpectationSerializer(mockServerLogger);
-    private VerificationSerializer verificationSerializer = new VerificationSerializer(mockServerLogger);
-    private VerificationSequenceSerializer verificationSequenceSerializer = new VerificationSequenceSerializer(mockServerLogger);
+    private NettyHttpClient nettyHttpClient = new NettyHttpClient(MOCK_SERVER_LOGGER, eventLoopGroup, null, false, new NettySslContextFactory(MOCK_SERVER_LOGGER));
+    private HttpRequest requestOverride;
+    private HttpRequestSerializer httpRequestSerializer = new HttpRequestSerializer(MOCK_SERVER_LOGGER);
+    private LogEventRequestAndResponseSerializer httpRequestResponseSerializer = new LogEventRequestAndResponseSerializer(MOCK_SERVER_LOGGER);
+    private PortBindingSerializer portBindingSerializer = new PortBindingSerializer(MOCK_SERVER_LOGGER);
+    private ExpectationSerializer expectationSerializer = new ExpectationSerializer(MOCK_SERVER_LOGGER);
+    private VerificationSerializer verificationSerializer = new VerificationSerializer(MOCK_SERVER_LOGGER);
+    private VerificationSequenceSerializer verificationSequenceSerializer = new VerificationSequenceSerializer(MOCK_SERVER_LOGGER);
 
     /**
      * Start the client communicating to a MockServer on localhost at the port
@@ -62,7 +69,7 @@ public class MockServerClient implements Stoppable {
      *
      * @param portFuture the port for the MockServer to communicate with
      */
-    public MockServerClient(Future<Integer> portFuture) {
+    public MockServerClient(CompletableFuture<Integer> portFuture) {
         this.clientClass = MockServerClient.class;
         this.host = "127.0.0.1";
         this.portFuture = portFuture;
@@ -94,7 +101,7 @@ public class MockServerClient implements Stoppable {
      */
     public MockServerClient(String host, int port, String contextPath) {
         this.clientClass = MockServerClient.class;
-        if (StringUtils.isEmpty(host)) {
+        if (isEmpty(host)) {
             throw new IllegalArgumentException("Host can not be null or empty");
         }
         if (contextPath == null) {
@@ -105,8 +112,24 @@ public class MockServerClient implements Stoppable {
         this.contextPath = contextPath;
     }
 
-    EventLoopGroup getEventLoopGroup() {
-        return eventLoopGroup;
+    public MockServerClient setRequestOverride(HttpRequest requestOverride) {
+        if (requestOverride == null) {
+            throw new IllegalArgumentException("Request with default properties can not be null");
+        } else {
+            this.requestOverride = requestOverride;
+        }
+        return this;
+    }
+
+    private MockServerEventBus getMockServerEventBus() {
+        if (EVENT_BUS_MAP.get(this.port()) == null) {
+            EVENT_BUS_MAP.put(this.port(), new MockServerEventBus());
+        }
+        return EVENT_BUS_MAP.get(this.port());
+    }
+
+    private void removeMockServerEventBus() {
+        EVENT_BUS_MAP.remove(this.port());
     }
 
     public boolean isSecure() {
@@ -121,7 +144,7 @@ public class MockServerClient implements Stoppable {
     private int port() {
         if (this.port == null) {
             try {
-                port = portFuture.get();
+                port = portFuture.get(maxFutureTimeout(), MILLISECONDS);
             } catch (Exception ex) {
                 throw new RuntimeException(ex);
             }
@@ -139,7 +162,7 @@ public class MockServerClient implements Stoppable {
 
     private String calculatePath(String path) {
         String cleanedPath = "/mockserver/" + path;
-        if (!Strings.isNullOrEmpty(contextPath)) {
+        if (isNotBlank(contextPath)) {
             cleanedPath =
                 (!contextPath.startsWith("/") ? "/" : "") +
                     contextPath +
@@ -154,7 +177,9 @@ public class MockServerClient implements Stoppable {
             if (secure != null) {
                 request.withSecure(secure);
             }
-
+            if (requestOverride != null) {
+                request = request.update(requestOverride);
+            }
             HttpResponse response = nettyHttpClient.sendRequest(
                 request.withHeader(HOST.toString(), this.host + ":" + port()),
                 ConfigurationProperties.maxSocketTimeout(),
@@ -168,16 +193,14 @@ public class MockServerClient implements Stoppable {
                 }
                 String serverVersion = response.getFirstHeader("version");
                 String clientVersion = Version.getVersion();
-                if (!Strings.isNullOrEmpty(serverVersion) &&
-                    !Strings.isNullOrEmpty(clientVersion) &&
-                    !clientVersion.equals(serverVersion)) {
+                if (isNotBlank(serverVersion) && isNotBlank(clientVersion) && !clientVersion.equals(serverVersion)) {
                     throw new ClientException("Client version \"" + clientVersion + "\" does not match server version \"" + serverVersion + "\"");
                 }
             }
 
             return response;
         } catch (RuntimeException rex) {
-            if (!Strings.isNullOrEmpty(rex.getMessage()) && (rex.getMessage().contains("executor not accepting a task") || rex.getMessage().contains("loop shut down"))) {
+            if (isNotBlank(rex.getMessage()) && (rex.getMessage().contains("executor not accepting a task") || rex.getMessage().contains("loop shut down"))) {
                 throw new IllegalStateException(this.getClass().getSimpleName() + " has already been closed, please create new " + this.getClass().getSimpleName() + " instance");
             } else {
                 throw rex;
@@ -186,21 +209,32 @@ public class MockServerClient implements Stoppable {
     }
 
     /**
-     * Returns whether MockServer is running
+     * Returns whether MockServer is running, if called too quickly after starting MockServer
+     * this may return false because MockServer has not yet started, to ensure MockServer has
+     * started use hasStarted()
+     *
+     * @deprecated use hasStopped() or hasStarted() instead
      */
+    @Deprecated
+    @SuppressWarnings("DeprecatedIsStillUsed")
     public boolean isRunning() {
         return isRunning(10, 500, TimeUnit.MILLISECONDS);
     }
 
     /**
-     * Returns whether server MockServer is running, by polling the MockServer a configurable amount of times
+     * Returns whether server MockServer is running, by polling the MockServer a configurable
+     * amount of times.  If called too quickly after starting MockServer this may return false
+     * because MockServer has not yet started, to ensure MockServer has started use hasStarted()
+     *
+     * @deprecated use hasStopped() or hasStarted() instead
      */
+    @Deprecated
     public boolean isRunning(int attempts, long timeout, TimeUnit timeUnit) {
         try {
             HttpResponse httpResponse = sendRequest(request().withMethod("PUT").withPath(calculatePath("status")));
             if (httpResponse.getStatusCode() == HttpStatusCode.OK_200.code()) {
                 return true;
-            } else if (attempts == 0) {
+            } else if (attempts <= 0) {
                 return false;
             } else {
                 try {
@@ -211,7 +245,95 @@ public class MockServerClient implements Stoppable {
                 return isRunning(attempts - 1, timeout, timeUnit);
             }
         } catch (SocketConnectionException | IllegalStateException sce) {
+            MOCK_SERVER_LOGGER.logEvent(
+                new LogEntry()
+                    .setLogLevel(TRACE)
+                    .setMessageFormat("exception while checking if MockServer is running - " + sce.getMessage() + " if MockServer was stopped this exception is expected")
+                    .setThrowable(sce)
+            );
             return false;
+        }
+    }
+
+    /**
+     * Returns whether MockServer has stopped, if called too quickly after starting MockServer
+     * this may return false because MockServer has not yet started, to ensure MockServer has
+     * started use hasStarted()
+     */
+    public boolean hasStopped() {
+        return hasStopped(10, 500, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Returns whether server MockServer has stopped, by polling the MockServer a configurable
+     * amount of times.  If called too quickly after starting MockServer this may return false
+     * because MockServer has not yet started, to ensure MockServer has started use hasStarted()
+     */
+    public boolean hasStopped(int attempts, long timeout, TimeUnit timeUnit) {
+        try {
+            HttpResponse httpResponse = sendRequest(request().withMethod("PUT").withPath(calculatePath("status")));
+            if (httpResponse.getStatusCode() == HttpStatusCode.OK_200.code()) {
+                if (attempts <= 0) {
+                    return false;
+                } else {
+                    try {
+                        timeUnit.sleep(timeout);
+                    } catch (InterruptedException e) {
+                        // ignore interrupted exception
+                    }
+                    return hasStopped(attempts - 1, timeout, timeUnit);
+                }
+            } else {
+                return true;
+            }
+        } catch (SocketConnectionException | IllegalStateException sce) {
+            return true;
+        }
+    }
+
+    /**
+     * Returns whether MockServer has started, if called after MockServer has been stopped
+     * this method will block for 5 seconds while confirming that MockServer is not starting
+     */
+    public boolean hasStarted() {
+        return hasStarted(10, 500, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Returns whether server MockServer has started, by polling the MockServer a configurable amount of times
+     */
+    public boolean hasStarted(int attempts, long timeout, TimeUnit timeUnit) {
+        try {
+            HttpResponse httpResponse = sendRequest(request().withMethod("PUT").withPath(calculatePath("status")));
+            if (httpResponse.getStatusCode() == HttpStatusCode.OK_200.code()) {
+                return true;
+            } else if (attempts <= 0) {
+                return false;
+            } else {
+                try {
+                    timeUnit.sleep(timeout);
+                } catch (InterruptedException e) {
+                    // ignore interrupted exception
+                }
+                return hasStarted(attempts - 1, timeout, timeUnit);
+            }
+        } catch (SocketConnectionException | IllegalStateException sce) {
+            if (attempts <= 0) {
+                MOCK_SERVER_LOGGER.logEvent(
+                    new LogEntry()
+                        .setLogLevel(DEBUG)
+                        .setMessageFormat("exception while checking if MockServer has started - " + sce.getMessage())
+                        .setThrowable(sce)
+                );
+                return false;
+            } else {
+                try {
+                    timeUnit.sleep(timeout);
+                } catch (InterruptedException e) {
+                    // ignore interrupted exception
+                }
+                return hasStarted(attempts - 1, timeout, timeUnit);
+            }
         }
     }
 
@@ -226,33 +348,62 @@ public class MockServerClient implements Stoppable {
     /**
      * Stop MockServer gracefully (only support for Netty version, not supported for WAR version)
      */
-    public void stop() {
-        stop(true);
+    public Future<MockServerClient> stopAsync() {
+        return stop(true);
     }
 
     /**
      * Stop MockServer gracefully (only support for Netty version, not supported for WAR version)
      */
-    public MockServerClient stop(boolean ignoreFailure) {
-        MockServerEventBus.getInstance().publish(EventType.STOP);
+    public void stop() {
         try {
-            sendRequest(request().withMethod("PUT").withPath(calculatePath("stop")));
-            if (isRunning()) {
-                for (int i = 0; isRunning() && i < 50; i++) {
-                    TimeUnit.MILLISECONDS.sleep(5);
+            stopAsync().get(10, SECONDS);
+        } catch (Throwable throwable) {
+            MOCK_SERVER_LOGGER.logEvent(
+                new LogEntry()
+                    .setLogLevel(DEBUG)
+                    .setMessageFormat("exception while stopping - " + throwable.getMessage())
+                    .setThrowable(throwable)
+            );
+        }
+    }
+
+    /**
+     * Stop MockServer gracefully (only support for Netty version, not supported for WAR version)
+     */
+    public Future<MockServerClient> stop(boolean ignoreFailure) {
+        getMockServerEventBus().publish(EventType.STOP);
+        removeMockServerEventBus();
+        CompletableFuture<MockServerClient> stopFuture = new CompletableFuture<>();
+        new Scheduler.SchedulerThreadFactory("ClientStop").newThread(() -> {
+            try {
+                sendRequest(request().withMethod("PUT").withPath(calculatePath("stop")));
+                if (isRunning()) {
+                    for (int i = 0; isRunning() && i < 50; i++) {
+                        TimeUnit.MILLISECONDS.sleep(5);
+                    }
+                }
+            } catch (RejectedExecutionException ree) {
+                MOCK_SERVER_LOGGER.logEvent(
+                    new LogEntry()
+                        .setLogLevel(TRACE)
+                        .setMessageFormat("request rejected while closing down, logging in case due other error " + ree)
+                );
+            } catch (Exception e) {
+                if (!ignoreFailure) {
+                    MOCK_SERVER_LOGGER.logEvent(
+                        new LogEntry()
+                            .setLogLevel(WARN)
+                            .setMessageFormat("failed to send stop request to MockServer " + e.getMessage())
+                    );
                 }
             }
-        } catch (RejectedExecutionException ree) {
-            mockServerLogger.trace("Request rejected because closing down but logging at trace level for information just in case due to some other actual error " + ree);
-        } catch (Exception e) {
-            if (!ignoreFailure) {
-                mockServerLogger.warn("Failed to send stop request to MockServer " + e.getMessage());
+            if (!eventLoopGroup.isShuttingDown()) {
+                eventLoopGroup.shutdownGracefully();
             }
-        }
-        if (!eventLoopGroup.isShuttingDown()) {
-            eventLoopGroup.shutdownGracefully();
-        }
-        return clientClass.cast(this);
+            stopFuture.complete(clientClass.cast(this));
+        }).start();
+        return stopFuture;
     }
 
     @Override
@@ -264,8 +415,12 @@ public class MockServerClient implements Stoppable {
      * Reset MockServer by clearing all expectations
      */
     public MockServerClient reset() {
-        MockServerEventBus.getInstance().publish(EventType.RESET);
-        sendRequest(request().withMethod("PUT").withPath(calculatePath("reset")));
+        getMockServerEventBus().publish(EventType.RESET);
+        sendRequest(
+            request()
+                .withMethod("PUT")
+                .withPath(calculatePath("reset"))
+        );
         return clientClass.cast(this);
     }
 
@@ -275,7 +430,13 @@ public class MockServerClient implements Stoppable {
      * @param httpRequest the http request that is matched against when deciding whether to clear each expectation if null all expectations are cleared
      */
     public MockServerClient clear(HttpRequest httpRequest) {
-        sendRequest(request().withMethod("PUT").withPath(calculatePath("clear")).withBody(httpRequest != null ? httpRequestSerializer.serialize(httpRequest) : "", StandardCharsets.UTF_8));
+        sendRequest(
+            request()
+                .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
+                .withPath(calculatePath("clear"))
+                .withBody(httpRequest != null ? httpRequestSerializer.serialize(httpRequest) : "", StandardCharsets.UTF_8)
+        );
         return clientClass.cast(this);
     }
 
@@ -286,7 +447,13 @@ public class MockServerClient implements Stoppable {
      * @param type        the type to clear, EXPECTATION, LOG or BOTH
      */
     public MockServerClient clear(HttpRequest httpRequest, ClearType type) {
-        sendRequest(request().withMethod("PUT").withPath(calculatePath("clear")).withQueryStringParameter("type", type.name().toLowerCase()).withBody(httpRequest != null ? httpRequestSerializer.serialize(httpRequest) : "", StandardCharsets.UTF_8));
+        sendRequest(
+            request()
+                .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
+                .withPath(calculatePath("clear"))
+                .withQueryStringParameter("type", type.name().toLowerCase()).withBody(httpRequest != null ? httpRequestSerializer.serialize(httpRequest) : "", StandardCharsets.UTF_8)
+        );
         return clientClass.cast(this);
     }
 
@@ -313,7 +480,13 @@ public class MockServerClient implements Stoppable {
         }
 
         VerificationSequence verificationSequence = new VerificationSequence().withRequests(httpRequests);
-        String result = sendRequest(request().withMethod("PUT").withPath(calculatePath("verifySequence")).withBody(verificationSequenceSerializer.serialize(verificationSequence), StandardCharsets.UTF_8)).getBodyAsString();
+        String result = sendRequest(
+            request()
+                .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
+                .withPath(calculatePath("verifySequence"))
+                .withBody(verificationSequenceSerializer.serialize(verificationSequence), StandardCharsets.UTF_8)
+        ).getBodyAsString();
 
         if (result != null && !result.isEmpty()) {
             throw new AssertionError(result);
@@ -342,6 +515,7 @@ public class MockServerClient implements Stoppable {
      * @param times       the number of times this request must be matched
      * @throws AssertionError if the request has not been found
      */
+    @SuppressWarnings("DuplicatedCode")
     public MockServerClient verify(HttpRequest httpRequest, VerificationTimes times) throws AssertionError {
         if (httpRequest == null) {
             throw new IllegalArgumentException("verify(HttpRequest, VerificationTimes) requires a non null HttpRequest object");
@@ -351,7 +525,13 @@ public class MockServerClient implements Stoppable {
         }
 
         Verification verification = verification().withRequest(httpRequest).withTimes(times);
-        String result = sendRequest(request().withMethod("PUT").withPath(calculatePath("verify")).withBody(verificationSerializer.serialize(verification), StandardCharsets.UTF_8)).getBodyAsString();
+        String result = sendRequest(
+            request()
+                .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
+                .withPath(calculatePath("verify"))
+                .withBody(verificationSerializer.serialize(verification), StandardCharsets.UTF_8)
+        ).getBodyAsString();
 
         if (result != null && !result.isEmpty()) {
             throw new AssertionError(result);
@@ -360,13 +540,20 @@ public class MockServerClient implements Stoppable {
     }
 
     /**
-     * Verify no requests have been have been sent.
+     * Verify no requests have been sent.
      *
      * @throws AssertionError if any request has been found
      */
+    @SuppressWarnings({"DuplicatedCode", "UnusedReturnValue"})
     public MockServerClient verifyZeroInteractions() throws AssertionError {
         Verification verification = verification().withRequest(request()).withTimes(exactly(0));
-        String result = sendRequest(request().withMethod("PUT").withPath(calculatePath("verify")).withBody(verificationSerializer.serialize(verification), StandardCharsets.UTF_8)).getBodyAsString();
+        String result = sendRequest(
+            request()
+                .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
+                .withPath(calculatePath("verify"))
+                .withBody(verificationSerializer.serialize(verification), StandardCharsets.UTF_8)
+        ).getBodyAsString();
 
         if (result != null && !result.isEmpty()) {
             throw new AssertionError(result);
@@ -382,7 +569,7 @@ public class MockServerClient implements Stoppable {
      */
     public HttpRequest[] retrieveRecordedRequests(HttpRequest httpRequest) {
         String recordedRequests = retrieveRecordedRequests(httpRequest, Format.JSON);
-        if (StringUtils.isNotEmpty(recordedRequests) && !recordedRequests.equals("[]")) {
+        if (isNotEmpty(recordedRequests) && !recordedRequests.equals("[]")) {
             return httpRequestSerializer.deserializeArray(recordedRequests);
         } else {
             return new HttpRequest[0];
@@ -400,8 +587,44 @@ public class MockServerClient implements Stoppable {
         HttpResponse httpResponse = sendRequest(
             request()
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath(calculatePath("retrieve"))
                 .withQueryStringParameter("type", RetrieveType.REQUESTS.name())
+                .withQueryStringParameter("format", format.name())
+                .withBody(httpRequest != null ? httpRequestSerializer.serialize(httpRequest) : "", StandardCharsets.UTF_8)
+        );
+        return httpResponse.getBodyAsString();
+    }
+
+    /**
+     * Retrieve the recorded requests and responses that match the httpRequest parameter, use null for the parameter to retrieve all requests and responses
+     *
+     * @param httpRequest the http request that is matched against when deciding whether to return each request (and its corresponding response), use null for the parameter to retrieve for all requests
+     * @return an array of all requests and responses that have been recorded by the MockServer in the order they have been received and including duplicates where the same request has been received multiple times
+     */
+    public LogEventRequestAndResponse[] retrieveRecordedRequestsAndResponses(HttpRequest httpRequest) {
+        String recordedRequests = retrieveRecordedRequestsAndResponses(httpRequest, Format.JSON);
+        if (isNotEmpty(recordedRequests) && !recordedRequests.equals("[]")) {
+            return httpRequestResponseSerializer.deserializeArray(recordedRequests);
+        } else {
+            return new LogEventRequestAndResponse[0];
+        }
+    }
+
+    /**
+     * Retrieve the recorded requests that match the httpRequest parameter, use null for the parameter to retrieve all requests
+     *
+     * @param httpRequest the http request that is matched against when deciding whether to return each request, use null for the parameter to retrieve for all requests
+     * @param format      the format to retrieve the expectations, either JAVA or JSON
+     * @return an array of all requests that have been recorded by the MockServer in the order they have been received and including duplicates where the same request has been received multiple times
+     */
+    public String retrieveRecordedRequestsAndResponses(HttpRequest httpRequest, Format format) {
+        HttpResponse httpResponse = sendRequest(
+            request()
+                .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
+                .withPath(calculatePath("retrieve"))
+                .withQueryStringParameter("type", RetrieveType.REQUEST_RESPONSES.name())
                 .withQueryStringParameter("format", format.name())
                 .withBody(httpRequest != null ? httpRequestSerializer.serialize(httpRequest) : "", StandardCharsets.UTF_8)
         );
@@ -416,8 +639,8 @@ public class MockServerClient implements Stoppable {
      */
     public Expectation[] retrieveRecordedExpectations(HttpRequest httpRequest) {
         String recordedExpectations = retrieveRecordedExpectations(httpRequest, Format.JSON);
-        if (!Strings.isNullOrEmpty(recordedExpectations) && !recordedExpectations.equals("[]")) {
-            return expectationSerializer.deserializeArray(recordedExpectations);
+        if (isNotBlank(recordedExpectations) && !recordedExpectations.equals("[]")) {
+            return expectationSerializer.deserializeArray(recordedExpectations, true);
         } else {
             return new Expectation[0];
         }
@@ -434,6 +657,7 @@ public class MockServerClient implements Stoppable {
         HttpResponse httpResponse = sendRequest(
             request()
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath(calculatePath("retrieve"))
                 .withQueryStringParameter("type", RetrieveType.RECORDED_EXPECTATIONS.name())
                 .withQueryStringParameter("format", format.name())
@@ -452,6 +676,7 @@ public class MockServerClient implements Stoppable {
         HttpResponse httpResponse = sendRequest(
             request()
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath(calculatePath("retrieve"))
                 .withQueryStringParameter("type", RetrieveType.LOGS.name())
                 .withBody(httpRequest != null ? httpRequestSerializer.serialize(httpRequest) : "", StandardCharsets.UTF_8)
@@ -516,7 +741,7 @@ public class MockServerClient implements Stoppable {
      * @return an Expectation object that can be used to specify the response
      */
     public ForwardChainExpectation when(HttpRequest httpRequest, Times times) {
-        return new ForwardChainExpectation(this, new Expectation(httpRequest, times, TimeToLive.unlimited()), availableWebSocketCallbackRegistrations);
+        return new ForwardChainExpectation(MOCK_SERVER_LOGGER, getMockServerEventBus(), this, new Expectation(httpRequest, times, TimeToLive.unlimited()));
     }
 
     /**
@@ -544,7 +769,7 @@ public class MockServerClient implements Stoppable {
      * @return an Expectation object that can be used to specify the response
      */
     public ForwardChainExpectation when(HttpRequest httpRequest, Times times, TimeToLive timeToLive) {
-        return new ForwardChainExpectation(this, new Expectation(httpRequest, times, timeToLive), availableWebSocketCallbackRegistrations);
+        return new ForwardChainExpectation(MOCK_SERVER_LOGGER, getMockServerEventBus(), this, new Expectation(httpRequest, times, timeToLive));
     }
 
     /**
@@ -568,9 +793,17 @@ public class MockServerClient implements Stoppable {
      *
      * @param expectations one or more expectations
      */
+    @SuppressWarnings("WeakerAccess")
     public void sendExpectation(Expectation... expectations) {
         for (Expectation expectation : expectations) {
-            HttpResponse httpResponse = sendRequest(request().withMethod("PUT").withPath(calculatePath("expectation")).withBody(expectation != null ? expectationSerializer.serialize(expectation) : "", StandardCharsets.UTF_8));
+            HttpResponse httpResponse =
+                sendRequest(
+                    request()
+                        .withMethod("PUT")
+                        .withContentType(APPLICATION_JSON_UTF_8)
+                        .withPath(calculatePath("expectation"))
+                        .withBody(expectation != null ? expectationSerializer.serialize(expectation) : "", StandardCharsets.UTF_8)
+                );
             if (httpResponse != null && httpResponse.getStatusCode() != 201) {
                 throw new ClientException(formatLogMessage("error:{}while submitted expectation:{}", httpResponse.getBody(), expectation));
             }
@@ -585,8 +818,8 @@ public class MockServerClient implements Stoppable {
      */
     public Expectation[] retrieveActiveExpectations(HttpRequest httpRequest) {
         String activeExpectations = retrieveActiveExpectations(httpRequest, Format.JSON);
-        if (!Strings.isNullOrEmpty(activeExpectations) && !activeExpectations.equals("[]")) {
-            return expectationSerializer.deserializeArray(activeExpectations);
+        if (isNotBlank(activeExpectations) && !activeExpectations.equals("[]")) {
+            return expectationSerializer.deserializeArray(activeExpectations, true);
         } else {
             return new Expectation[0];
         }
@@ -603,6 +836,7 @@ public class MockServerClient implements Stoppable {
         HttpResponse httpResponse = sendRequest(
             request()
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath(calculatePath("retrieve"))
                 .withQueryStringParameter("type", RetrieveType.ACTIVE_EXPECTATIONS.name())
                 .withQueryStringParameter("format", format.name())

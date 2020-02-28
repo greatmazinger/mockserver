@@ -5,22 +5,22 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.internal.verification.AtLeast;
 import org.mockserver.Version;
 import org.mockserver.matchers.Times;
 import org.mockserver.mock.Expectation;
 import org.mockserver.model.*;
-import org.mockserver.serialization.ExpectationSerializer;
-import org.mockserver.serialization.HttpRequestSerializer;
-import org.mockserver.serialization.VerificationSequenceSerializer;
-import org.mockserver.serialization.VerificationSerializer;
+import org.mockserver.serialization.*;
 import org.mockserver.serialization.model.*;
 import org.mockserver.verify.Verification;
 import org.mockserver.verify.VerificationSequence;
 import org.mockserver.verify.VerificationTimes;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.HOST;
@@ -29,15 +29,15 @@ import static io.netty.handler.codec.http.HttpResponseStatus.CREATED;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.*;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 import static org.mockito.MockitoAnnotations.initMocks;
 import static org.mockserver.model.HttpOverrideForwardedRequest.forwardOverriddenRequest;
 import static org.mockserver.model.HttpRequest.request;
 import static org.mockserver.model.HttpResponse.response;
+import static org.mockserver.model.MediaType.APPLICATION_JSON_UTF_8;
 import static org.mockserver.verify.Verification.verification;
 import static org.mockserver.verify.VerificationTimes.atLeast;
 import static org.mockserver.verify.VerificationTimes.once;
@@ -48,7 +48,7 @@ import static org.mockserver.verify.VerificationTimes.once;
 public class MockServerClientTest {
 
     @Rule
-    public ExpectedException exception = ExpectedException.none();
+    public final ExpectedException exception = ExpectedException.none();
 
     @Mock
     private NettyHttpClient mockHttpClient;
@@ -57,11 +57,16 @@ public class MockServerClientTest {
     @Mock
     private HttpRequestSerializer mockHttpRequestSerializer;
     @Mock
+    private LogEventRequestAndResponseSerializer httpRequestResponseSerializer;
+    @Mock
     private VerificationSerializer mockVerificationSerializer;
     @Mock
     private VerificationSequenceSerializer mockVerificationSequenceSerializer;
     @InjectMocks
     private MockServerClient mockServerClient;
+
+    @Captor
+    ArgumentCaptor<HttpRequest> httpRequestArgumentCaptor;
 
     @Before
     public void setupTestFixture() {
@@ -81,6 +86,34 @@ public class MockServerClientTest {
     }
 
     @Test
+    public void shouldHandleNullHttpRequestEnhancerException() {
+        // then
+        exception.expect(IllegalArgumentException.class);
+        exception.expectMessage(containsString("Request with default properties can not be null"));
+
+        mockServerClient.setRequestOverride(null);
+    }
+
+    @Test
+    public void shouldEnhanceRequestWithAuthorizationHeader() {
+        // given
+        String authorizationKey = "Authorization";
+        String authorizationHeaderValue = "Basic dGVzdFVzZXI6dGVzdA==";
+        HttpRequest defaultRequestProperties = new HttpRequest();
+        defaultRequestProperties.withHeader(authorizationKey, authorizationHeaderValue);
+
+        // when
+        mockServerClient
+            .setRequestOverride(defaultRequestProperties)
+            .reset();
+
+        // then
+        verify(mockHttpClient).sendRequest(httpRequestArgumentCaptor.capture(), anyLong(), any(TimeUnit.class));
+        List<String> authorizationHeader = httpRequestArgumentCaptor.getValue().getHeader(authorizationKey);
+        assertTrue(authorizationHeader.contains(authorizationHeaderValue));
+    }
+
+    @Test
     public void shouldHandleNullContextPathExceptions() {
         // then
         exception.expect(IllegalArgumentException.class);
@@ -91,7 +124,6 @@ public class MockServerClientTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     public void shouldHandleInvalidExpectationException() {
         // then
         exception.expect(IllegalArgumentException.class);
@@ -110,8 +142,7 @@ public class MockServerClientTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    public void shouldHandleUnmatchingServerVersion() {
+    public void shouldHandleNonMatchingServerVersion() {
         try {
             System.setProperty("MOCKSERVER_VERSION", "some_version");
 
@@ -135,7 +166,6 @@ public class MockServerClientTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     public void shouldHandleMatchingServerVersion() {
         try {
             // given
@@ -668,18 +698,21 @@ public class MockServerClientTest {
         when(mockHttpClient.sendRequest(any(HttpRequest.class), anyLong(), any(TimeUnit.class))).thenReturn(response().withStatusCode(HttpStatusCode.OK_200.code()));
 
         // when
-        boolean running = mockServerClient.isRunning();
+        boolean hasStarted = mockServerClient.hasStarted();
+        boolean hasStopped = mockServerClient.hasStopped();
 
         // then
-        assertTrue(running);
-        verify(mockHttpClient).sendRequest(
-            request()
-                .withHeader(HOST.toString(), "localhost:" + 1080)
-                .withMethod("PUT")
-                .withPath("/mockserver/status"),
-            20000,
-            TimeUnit.MILLISECONDS
-        );
+        assertThat(hasStopped, is(false));
+        assertThat(hasStarted, is(true));
+        verify(mockHttpClient, new AtLeast(1))
+            .sendRequest(
+                request()
+                    .withHeader(HOST.toString(), "localhost:" + 1080)
+                    .withMethod("PUT")
+                    .withPath("/mockserver/status"),
+                20000,
+                TimeUnit.MILLISECONDS
+            );
     }
 
     @Test
@@ -689,11 +722,13 @@ public class MockServerClientTest {
         when(mockHttpClient.sendRequest(any(HttpRequest.class), anyLong(), any(TimeUnit.class))).thenThrow(SocketConnectionException.class);
 
         // when
-        boolean running = mockServerClient.isRunning();
+        boolean hasStopped = mockServerClient.hasStopped();
+        boolean hasStarted = mockServerClient.hasStarted();
 
         // then
-        assertFalse(running);
-        verify(mockHttpClient).sendRequest(
+        assertThat(hasStopped, is(true));
+        assertThat(hasStarted, is(false));
+        verify(mockHttpClient, atLeastOnce()).sendRequest(
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
@@ -735,6 +770,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/clear")
                 .withBody(someRequestMatcher.toString(), StandardCharsets.UTF_8),
             20000,
@@ -758,6 +794,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/clear")
                 .withQueryStringParameter("type", "log")
                 .withBody(someRequestMatcher.toString(), StandardCharsets.UTF_8),
@@ -777,6 +814,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/clear")
                 .withBody("", StandardCharsets.UTF_8),
             20000,
@@ -807,6 +845,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/retrieve")
                 .withQueryStringParameter("type", RetrieveType.REQUESTS.name())
                 .withQueryStringParameter("format", Format.JSON.name())
@@ -831,6 +870,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/retrieve")
                 .withQueryStringParameter("type", RetrieveType.REQUESTS.name())
                 .withQueryStringParameter("format", Format.JSON.name())
@@ -839,6 +879,65 @@ public class MockServerClientTest {
             TimeUnit.MILLISECONDS
         );
         verify(mockHttpRequestSerializer).deserializeArray("body");
+    }
+
+    @Test
+    public void shouldRetrieveRequestResponses() {
+        // given - a request
+        HttpRequest someRequestMatcher = new HttpRequest()
+            .withPath("/some_path")
+            .withBody(new StringBody("some_request_body"));
+        when(mockHttpRequestSerializer.serialize(someRequestMatcher)).thenReturn(someRequestMatcher.toString());
+
+        // and - a client
+        when(mockHttpClient.sendRequest(any(HttpRequest.class), anyLong(), any(TimeUnit.class))).thenReturn(response().withBody("body"));
+
+        // and - a response
+        LogEventRequestAndResponse[] httpRequests = {};
+        when(httpRequestResponseSerializer.deserializeArray("body")).thenReturn(httpRequests);
+
+        // when
+        assertSame(httpRequests, mockServerClient.retrieveRecordedRequestsAndResponses(someRequestMatcher));
+
+        // then
+        verify(mockHttpClient).sendRequest(
+            request()
+                .withHeader(HOST.toString(), "localhost:" + 1080)
+                .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
+                .withPath("/mockserver/retrieve")
+                .withQueryStringParameter("type", RetrieveType.REQUEST_RESPONSES.name())
+                .withQueryStringParameter("format", Format.JSON.name())
+                .withBody(someRequestMatcher.toString(), StandardCharsets.UTF_8),
+            20000,
+            TimeUnit.MILLISECONDS);
+        verify(httpRequestResponseSerializer).deserializeArray("body");
+    }
+
+    @Test
+    public void shouldRetrieveRequestResponsesWithNullRequest() {
+        // given
+        LogEventRequestAndResponse[] httpRequests = {};
+        when(mockHttpClient.sendRequest(any(HttpRequest.class), anyLong(), any(TimeUnit.class))).thenReturn(response().withBody("body"));
+        when(httpRequestResponseSerializer.deserializeArray("body")).thenReturn(httpRequests);
+
+        // when
+        assertSame(httpRequests, mockServerClient.retrieveRecordedRequestsAndResponses(null));
+
+        // then
+        verify(mockHttpClient).sendRequest(
+            request()
+                .withHeader(HOST.toString(), "localhost:" + 1080)
+                .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
+                .withPath("/mockserver/retrieve")
+                .withQueryStringParameter("type", RetrieveType.REQUEST_RESPONSES.name())
+                .withQueryStringParameter("format", Format.JSON.name())
+                .withBody("", StandardCharsets.UTF_8),
+            20000,
+            TimeUnit.MILLISECONDS
+        );
+        verify(httpRequestResponseSerializer).deserializeArray("body");
     }
 
     @Test
@@ -854,7 +953,7 @@ public class MockServerClientTest {
 
         // and - an expectation
         Expectation[] expectations = {};
-        when(mockExpectationSerializer.deserializeArray("body")).thenReturn(expectations);
+        when(mockExpectationSerializer.deserializeArray("body", true)).thenReturn(expectations);
 
         // when
         assertSame(expectations, mockServerClient.retrieveActiveExpectations(someRequestMatcher));
@@ -864,6 +963,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/retrieve")
                 .withQueryStringParameter("type", RetrieveType.ACTIVE_EXPECTATIONS.name())
                 .withQueryStringParameter("format", Format.JSON.name())
@@ -871,7 +971,7 @@ public class MockServerClientTest {
             20000,
             TimeUnit.MILLISECONDS
         );
-        verify(mockExpectationSerializer).deserializeArray("body");
+        verify(mockExpectationSerializer).deserializeArray("body", true);
     }
 
     @Test
@@ -879,7 +979,7 @@ public class MockServerClientTest {
         // given
         Expectation[] expectations = {};
         when(mockHttpClient.sendRequest(any(HttpRequest.class), anyLong(), any(TimeUnit.class))).thenReturn(response().withBody("body"));
-        when(mockExpectationSerializer.deserializeArray("body")).thenReturn(expectations);
+        when(mockExpectationSerializer.deserializeArray("body", true)).thenReturn(expectations);
 
         // when
         assertSame(expectations, mockServerClient.retrieveActiveExpectations(null));
@@ -889,6 +989,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/retrieve")
                 .withQueryStringParameter("type", RetrieveType.ACTIVE_EXPECTATIONS.name())
                 .withQueryStringParameter("format", Format.JSON.name())
@@ -896,7 +997,7 @@ public class MockServerClientTest {
             20000,
             TimeUnit.MILLISECONDS
         );
-        verify(mockExpectationSerializer).deserializeArray("body");
+        verify(mockExpectationSerializer).deserializeArray("body", true);
     }
 
     @Test
@@ -912,7 +1013,7 @@ public class MockServerClientTest {
 
         // and - an expectation
         Expectation[] expectations = {};
-        when(mockExpectationSerializer.deserializeArray("body")).thenReturn(expectations);
+        when(mockExpectationSerializer.deserializeArray("body", true)).thenReturn(expectations);
 
         // when
         assertSame(expectations, mockServerClient.retrieveRecordedExpectations(someRequestMatcher));
@@ -922,6 +1023,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/retrieve")
                 .withQueryStringParameter("type", RetrieveType.RECORDED_EXPECTATIONS.name())
                 .withQueryStringParameter("format", Format.JSON.name())
@@ -929,7 +1031,7 @@ public class MockServerClientTest {
             20000,
             TimeUnit.MILLISECONDS
         );
-        verify(mockExpectationSerializer).deserializeArray("body");
+        verify(mockExpectationSerializer).deserializeArray("body", true);
     }
 
     @Test
@@ -937,7 +1039,7 @@ public class MockServerClientTest {
         // given
         Expectation[] expectations = {};
         when(mockHttpClient.sendRequest(any(HttpRequest.class), anyLong(), any(TimeUnit.class))).thenReturn(response().withBody("body"));
-        when(mockExpectationSerializer.deserializeArray("body")).thenReturn(expectations);
+        when(mockExpectationSerializer.deserializeArray("body", true)).thenReturn(expectations);
 
         // when
         assertSame(expectations, mockServerClient.retrieveRecordedExpectations(null));
@@ -947,6 +1049,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/retrieve")
                 .withQueryStringParameter("type", RetrieveType.RECORDED_EXPECTATIONS.name())
                 .withQueryStringParameter("format", Format.JSON.name())
@@ -954,7 +1057,7 @@ public class MockServerClientTest {
             20000,
             TimeUnit.MILLISECONDS
         );
-        verify(mockExpectationSerializer).deserializeArray("body");
+        verify(mockExpectationSerializer).deserializeArray("body", true);
     }
 
     @Test
@@ -970,13 +1073,14 @@ public class MockServerClientTest {
             mockServerClient.verify(httpRequest);
 
             // then
-            fail();
+            fail("expected exception to be thrown");
         } catch (AssertionError ae) {
             verify(mockVerificationSequenceSerializer).serialize(new VerificationSequence().withRequests(httpRequest));
             verify(mockHttpClient).sendRequest(
                 request()
                     .withHeader(HOST.toString(), "localhost:" + 1080)
                     .withMethod("PUT")
+                    .withContentType(APPLICATION_JSON_UTF_8)
                     .withPath("/mockserver/verifySequence")
                     .withBody("verification_json", StandardCharsets.UTF_8),
                 20000,
@@ -999,13 +1103,14 @@ public class MockServerClientTest {
             mockServerClient.verify(httpRequest, httpRequest);
 
             // then
-            fail();
+            fail("expected exception to be thrown");
         } catch (AssertionError ae) {
             verify(mockVerificationSequenceSerializer).serialize(new VerificationSequence().withRequests(httpRequest, httpRequest));
             verify(mockHttpClient).sendRequest(
                 request()
                     .withHeader(HOST.toString(), "localhost:" + 1080)
                     .withMethod("PUT")
+                    .withContentType(APPLICATION_JSON_UTF_8)
                     .withPath("/mockserver/verifySequence")
                     .withBody("verification_json", StandardCharsets.UTF_8),
                 20000,
@@ -1038,6 +1143,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/verifySequence")
                 .withBody("verification_json", StandardCharsets.UTF_8),
             20000,
@@ -1068,6 +1174,7 @@ public class MockServerClientTest {
             request()
                 .withHeader(HOST.toString(), "localhost:" + 1080)
                 .withMethod("PUT")
+                .withContentType(APPLICATION_JSON_UTF_8)
                 .withPath("/mockserver/verify")
                 .withBody("verification_json", StandardCharsets.UTF_8),
             20000,
@@ -1088,13 +1195,14 @@ public class MockServerClientTest {
             mockServerClient.verify(httpRequest, atLeast(1));
 
             // then
-            fail();
+            fail("expected exception to be thrown");
         } catch (AssertionError ae) {
             verify(mockVerificationSerializer).serialize(verification().withRequest(httpRequest).withTimes(atLeast(1)));
             verify(mockHttpClient).sendRequest(
                 request()
                     .withHeader(HOST.toString(), "localhost:" + 1080)
                     .withMethod("PUT")
+                    .withContentType(APPLICATION_JSON_UTF_8)
                     .withPath("/mockserver/verify")
                     .withBody("verification_json", StandardCharsets.UTF_8),
                 20000,
@@ -1170,7 +1278,7 @@ public class MockServerClientTest {
         assertEquals(Times.unlimited(), expectation.getTimes());
 
         ArgumentCaptor<HttpRequest> configRequestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(mockHttpClient).sendRequest(configRequestCaptor.capture(), anyInt(), any(TimeUnit.class));
+        verify(mockHttpClient).sendRequest(configRequestCaptor.capture(), anyLong(), any(TimeUnit.class));
         assertFalse(configRequestCaptor.getValue().isSecure());
     }
 
@@ -1200,7 +1308,7 @@ public class MockServerClientTest {
         assertEquals(Times.unlimited(), expectation.getTimes());
 
         ArgumentCaptor<HttpRequest> configRequestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(mockHttpClient).sendRequest(configRequestCaptor.capture(), anyInt(), any(TimeUnit.class));
+        verify(mockHttpClient).sendRequest(configRequestCaptor.capture(), anyLong(), any(TimeUnit.class));
         assertTrue(configRequestCaptor.getValue().isSecure());
     }
 

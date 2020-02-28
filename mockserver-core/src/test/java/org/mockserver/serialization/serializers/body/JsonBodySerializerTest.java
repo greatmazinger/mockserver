@@ -1,8 +1,8 @@
 package org.mockserver.serialization.serializers.body;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.common.net.MediaType;
 import org.junit.Test;
+import org.mockserver.model.MediaType;
 import org.mockserver.serialization.ObjectMapperFactory;
 import org.mockserver.matchers.MatchType;
 
@@ -15,7 +15,7 @@ import static org.mockserver.model.Not.not;
 
 public class JsonBodySerializerTest {
 
-    public class TestObject {
+    public static class TestObject {
         private String fieldOne = "valueOne";
         private String fieldTwo = "valueTwo";
 

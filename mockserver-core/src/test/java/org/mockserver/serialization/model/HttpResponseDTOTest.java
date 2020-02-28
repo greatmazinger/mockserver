@@ -8,7 +8,6 @@ import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.collection.IsIterableContainingInAnyOrder.containsInAnyOrder;
 import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.assertTrue;
 import static org.mockserver.model.Cookie.cookie;
 import static org.mockserver.model.Header.header;
 import static org.mockserver.model.StringBody.exact;
@@ -116,8 +115,8 @@ public class HttpResponseDTOTest {
 
         // then
         assertThat(httpResponseDTO.getBody(), is(nullValue()));
-        assertTrue(httpResponseDTO.getCookies().isEmpty());
-        assertTrue(httpResponseDTO.getHeaders().isEmpty());
+        assertThat(httpResponseDTO.getCookies(), is(nullValue()));
+        assertThat(httpResponseDTO.getHeaders(), is(nullValue()));
         assertThat(httpResponseDTO.getStatusCode(), is(nullValue()));
         assertThat(httpResponseDTO.getReasonPhrase(), is(nullValue()));
         assertThat(httpResponseDTO.getConnectionOptions(), is(nullValue()));
@@ -130,8 +129,8 @@ public class HttpResponseDTOTest {
 
         // then
         assertThat(httpResponseDTO.getBody(), is(nullValue()));
-        assertTrue(httpResponseDTO.getCookies().isEmpty());
-        assertTrue(httpResponseDTO.getHeaders().isEmpty());
+        assertThat(httpResponseDTO.getCookies(), is(nullValue()));
+        assertThat(httpResponseDTO.getHeaders(), is(nullValue()));
         assertThat(httpResponseDTO.getStatusCode(), is(nullValue()));
         assertThat(httpResponseDTO.getReasonPhrase(), is(nullValue()));
         assertThat(httpResponseDTO.getConnectionOptions(), is(nullValue()));

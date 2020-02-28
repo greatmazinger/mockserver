@@ -7,6 +7,24 @@ import org.mockserver.model.ObjectWithReflectiveEqualsHashCodeToString;
  */
 public class Times extends ObjectWithReflectiveEqualsHashCodeToString {
 
+    private static final Times TIMES_UNLIMITED = new Times(-1, true) {
+        public final int getRemainingTimes() {
+            return -1;
+        }
+
+        public final boolean isUnlimited() {
+            return true;
+        }
+
+        public final boolean greaterThenZero() {
+            return true;
+        }
+
+        public final boolean decrement() {
+            return false;
+        }
+    };
+
     private int remainingTimes;
     private final boolean unlimited;
 
@@ -16,7 +34,7 @@ public class Times extends ObjectWithReflectiveEqualsHashCodeToString {
     }
 
     public static Times unlimited() {
-        return new Times(0, true);
+        return TIMES_UNLIMITED;
     }
 
     public static Times once() {
@@ -36,20 +54,18 @@ public class Times extends ObjectWithReflectiveEqualsHashCodeToString {
     }
 
     public boolean greaterThenZero() {
-        if (unlimited || remainingTimes > 0) {
-            return true;
-        } else {
-            return false;
-        }
+        return unlimited || remainingTimes > 0;
     }
 
-    public Times decrement() {
+    public boolean decrement() {
         if (!unlimited) {
             remainingTimes--;
+            return true;
         }
-        return this;
+        return false;
     }
 
+    @SuppressWarnings("MethodDoesntCallSuperMethod")
     public Times clone() {
         if (unlimited) {
             return Times.unlimited();

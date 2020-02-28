@@ -1,13 +1,11 @@
 package org.mockserver.serialization.deserializers.body;
 
-import com.google.common.net.MediaType;
-import io.netty.util.CharsetUtil;
 import org.apache.commons.text.StringEscapeUtils;
 import org.junit.Test;
-import org.mockserver.serialization.ObjectMapperFactory;
-import org.mockserver.serialization.model.*;
 import org.mockserver.matchers.MatchType;
 import org.mockserver.model.*;
+import org.mockserver.serialization.ObjectMapperFactory;
+import org.mockserver.serialization.model.*;
 
 import javax.xml.bind.DatatypeConverter;
 import java.io.IOException;
@@ -16,7 +14,6 @@ import java.nio.charset.StandardCharsets;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.mockserver.character.Character.NEW_LINE;
-import static org.mockserver.model.HttpRequest.request;
 import static org.mockserver.model.JsonBody.json;
 import static org.mockserver.model.NottableString.not;
 import static org.mockserver.model.RegexBody.regex;
@@ -129,7 +126,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("")))
+                    .setBody(new StringBodyDTO(new StringBody("1")))
             ), expectationDTO);
     }
 
@@ -485,7 +482,7 @@ public class BodyDTODeserializerTest {
         String json = ("{" + NEW_LINE +
             "    \"httpRequest\": {" + NEW_LINE +
             "        \"body\" : {" + NEW_LINE +
-            "            \"charset\" : \""+ CharsetUtil.ISO_8859_1 +  "\"," + NEW_LINE +
+            "            \"charset\" : \"" + StandardCharsets.ISO_8859_1 + "\"," + NEW_LINE +
             "            \"string\" : \"some_value\"" + NEW_LINE +
             "        }" + NEW_LINE +
             "    }" + NEW_LINE +
@@ -498,7 +495,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("some_value", MediaType.PLAIN_TEXT_UTF_8.withCharset(CharsetUtil.ISO_8859_1))))
+                    .setBody(new StringBodyDTO(new StringBody("some_value", MediaType.PLAIN_TEXT_UTF_8.withCharset(StandardCharsets.ISO_8859_1))))
             ), expectationDTO);
     }
 
@@ -590,7 +587,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("some_value", true)))
+                    .setBody(new StringBodyDTO(new StringBody("some_value", null, true, null)))
             ), expectationDTO);
     }
 
@@ -613,7 +610,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("some_value", false)))
+                    .setBody(new StringBodyDTO(new StringBody("some_value", null, false, null)))
             ), expectationDTO);
     }
 
@@ -637,7 +634,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("some_value", true, MediaType.PLAIN_TEXT_UTF_8)))
+                    .setBody(new StringBodyDTO(new StringBody("some_value", null, true, MediaType.PLAIN_TEXT_UTF_8)))
             ), expectationDTO);
     }
 
@@ -647,7 +644,7 @@ public class BodyDTODeserializerTest {
         String json = ("{" + NEW_LINE +
             "    \"httpRequest\": {" + NEW_LINE +
             "        \"body\" : {" + NEW_LINE +
-            "            \"charset\" : \""+ CharsetUtil.ISO_8859_1 +  "\"," + NEW_LINE +
+            "            \"charset\" : \"" + StandardCharsets.ISO_8859_1 + "\"," + NEW_LINE +
             "            \"string\" : \"some_value\"" + NEW_LINE +
             "        }" + NEW_LINE +
             "    }" + NEW_LINE +
@@ -660,7 +657,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("some_value", MediaType.PLAIN_TEXT_UTF_8.withCharset(CharsetUtil.ISO_8859_1))))
+                    .setBody(new StringBodyDTO(new StringBody("some_value", MediaType.PLAIN_TEXT_UTF_8.withCharset(StandardCharsets.ISO_8859_1))))
             ), expectationDTO);
     }
 
@@ -683,7 +680,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("some_value", true)))
+                    .setBody(new StringBodyDTO(new StringBody("some_value", null, true, null)))
             ), expectationDTO);
     }
 
@@ -708,7 +705,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("some_value", true), true))
+                    .setBody(new StringBodyDTO(new StringBody("some_value", null, true, null), true))
             ), expectationDTO);
     }
 
@@ -732,7 +729,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new StringBodyDTO(new StringBody("some_value", true)))
+                    .setBody(new StringBodyDTO(new StringBody("some_value", null, true, null)))
             ), expectationDTO);
     }
 
@@ -873,6 +870,90 @@ public class BodyDTODeserializerTest {
     }
 
     @Test
+    public void shouldParseJsonWithJsonBodyAsObject() throws IOException {
+        // given
+        String json = ("{" + NEW_LINE +
+            "    \"httpRequest\": {" + NEW_LINE +
+            "        \"body\" : {\"employees\":[{\"firstName\":\"John\", \"lastName\":\"Doe\"}]}" + NEW_LINE +
+            "    }" + NEW_LINE +
+            "}");
+
+        // when
+        ExpectationDTO expectationDTO = ObjectMapperFactory.createObjectMapper().readValue(json, ExpectationDTO.class);
+
+        // then
+        assertEquals(new ExpectationDTO()
+            .setHttpRequest(
+                new HttpRequestDTO()
+                    .setBody(new JsonBodyDTO(new JsonBody("{\"employees\":[{\"firstName\":\"John\",\"lastName\":\"Doe\"}]}")))
+            ), expectationDTO);
+    }
+
+    @Test
+    public void shouldParseJsonWithJsonBodyAsArray() throws IOException {
+        // given
+        String json = ("{" + NEW_LINE +
+            "    \"httpRequest\": {" + NEW_LINE +
+            "        \"body\" : [{\"firstName\":\"John\", \"lastName\":\"Doe\"}]" + NEW_LINE +
+            "    }" + NEW_LINE +
+            "}");
+
+        // when
+        ExpectationDTO expectationDTO = ObjectMapperFactory.createObjectMapper().readValue(json, ExpectationDTO.class);
+
+        // then
+        assertEquals(new ExpectationDTO()
+            .setHttpRequest(
+                new HttpRequestDTO()
+                    .setBody(new JsonBodyDTO(new JsonBody("[{\"firstName\":\"John\",\"lastName\":\"Doe\"}]")))
+            ), expectationDTO);
+    }
+
+    @Test
+    public void shouldParseJsonWithJsonBodyWithEmptyArray() throws IOException {
+        // given
+        String json = ("{" + NEW_LINE +
+            "    \"httpRequest\": {" + NEW_LINE +
+            "        \"body\" : {\"emptyArray\":\"[]\"}" + NEW_LINE +
+            "    }" + NEW_LINE +
+            "}");
+
+        // when
+        ExpectationDTO expectationDTO = ObjectMapperFactory.createObjectMapper().readValue(json, ExpectationDTO.class);
+
+        // then
+        assertEquals(new ExpectationDTO()
+            .setHttpRequest(
+                new HttpRequestDTO()
+                    .setBody(new JsonBodyDTO(new JsonBody("{\"emptyArray\":\"[]\"}")))
+            ), expectationDTO);
+    }
+
+    @Test
+    public void shouldParseJsonWithJsonBodyAsObjectField() throws IOException {
+        // given
+        String json = ("{" + NEW_LINE +
+            "    \"httpRequest\": {" + NEW_LINE +
+            "        \"body\": {" + NEW_LINE +
+            "            \"type\": \"JSON\"," + NEW_LINE +
+            "            \"json\": {\"context\": [{\"source\": \"DECISION_REQUEST\"},{\"source\": \"DECISION_REQUEST\"},{\"source\": \"DECISION_REQUEST\"}]}," + NEW_LINE +
+            "            \"matchType\" : \"ONLY_MATCHING_FIELDS\"" + NEW_LINE +
+            "        }" + NEW_LINE +
+            "    }" + NEW_LINE +
+            "}");
+
+        // when
+        ExpectationDTO expectationDTO = ObjectMapperFactory.createObjectMapper().readValue(json, ExpectationDTO.class);
+
+        // then
+        assertEquals(new ExpectationDTO()
+            .setHttpRequest(
+                new HttpRequestDTO()
+                    .setBody(new JsonBodyDTO(new JsonBody("{\"context\":[{\"source\":\"DECISION_REQUEST\"},{\"source\":\"DECISION_REQUEST\"},{\"source\":\"DECISION_REQUEST\"}]}")))
+            ), expectationDTO);
+    }
+
+    @Test
     public void shouldParseJsonWithJsonBodyWithMatchTypeAndContentType() throws IOException {
         // given
         String json = ("{" + NEW_LINE +
@@ -893,7 +974,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new JsonBodyDTO(new JsonBody("{'employees':[{'firstName':'John', 'lastName':'Doe'}]}", MediaType.JSON_UTF_8, MatchType.STRICT)))
+                    .setBody(new JsonBodyDTO(new JsonBody("{'employees':[{'firstName':'John', 'lastName':'Doe'}]}", null, MediaType.JSON_UTF_8, MatchType.STRICT)))
             ), expectationDTO);
     }
 
@@ -917,7 +998,7 @@ public class BodyDTODeserializerTest {
         assertEquals(new ExpectationDTO()
             .setHttpRequest(
                 new HttpRequestDTO()
-                    .setBody(new JsonBodyDTO(new JsonBody("{'employees':[{'firstName':'John', 'lastName':'Doe'}]}", MediaType.JSON_UTF_8.withCharset(StandardCharsets.ISO_8859_1), MatchType.ONLY_MATCHING_FIELDS)))
+                    .setBody(new JsonBodyDTO(new JsonBody("{'employees':[{'firstName':'John', 'lastName':'Doe'}]}", null, MediaType.JSON_UTF_8.withCharset(StandardCharsets.ISO_8859_1), MatchType.ONLY_MATCHING_FIELDS)))
             ), expectationDTO);
     }
 

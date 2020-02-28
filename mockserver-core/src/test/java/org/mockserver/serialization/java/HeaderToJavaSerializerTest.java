@@ -3,7 +3,6 @@ package org.mockserver.serialization.java;
 import org.junit.Test;
 import org.mockserver.model.Header;
 
-import java.io.IOException;
 import java.util.Arrays;
 
 import static org.junit.Assert.assertEquals;
@@ -12,7 +11,7 @@ import static org.mockserver.character.Character.NEW_LINE;
 public class HeaderToJavaSerializerTest {
 
     @Test
-    public void shouldSerializeHeader() throws IOException {
+    public void shouldSerializeHeader() {
         assertEquals(NEW_LINE +
                         "        new Header(\"requestHeaderNameOne\", \"requestHeaderValueOneOne\", \"requestHeaderValueOneTwo\")",
                 new HeaderToJavaSerializer().serialize(1, new Header("requestHeaderNameOne", "requestHeaderValueOneOne", "requestHeaderValueOneTwo"))
@@ -20,7 +19,7 @@ public class HeaderToJavaSerializerTest {
     }
 
     @Test
-    public void shouldSerializeMultipleHeaders() throws IOException {
+    public void shouldSerializeMultipleHeaders() {
         assertEquals(NEW_LINE +
                         "        new Header(\"requestHeaderNameOne\", \"requestHeaderValueOneOne\", \"requestHeaderValueOneTwo\")," +
                         NEW_LINE +
@@ -30,7 +29,7 @@ public class HeaderToJavaSerializerTest {
     }
 
     @Test
-    public void shouldSerializeListOfHeaders() throws IOException {
+    public void shouldSerializeListOfHeaders() {
         assertEquals(NEW_LINE +
                         "        new Header(\"requestHeaderNameOne\", \"requestHeaderValueOneOne\", \"requestHeaderValueOneTwo\")," +
                         NEW_LINE +

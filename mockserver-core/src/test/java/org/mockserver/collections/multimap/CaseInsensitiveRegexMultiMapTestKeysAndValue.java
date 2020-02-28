@@ -18,7 +18,7 @@ public class CaseInsensitiveRegexMultiMapTestKeysAndValue {
     public void shouldReturnKeys() {
         // given
         CaseInsensitiveRegexMultiMap multiMap = multiMap(
-                new String[]{"keyOne", "keyOne_valueOne"},
+            true, new String[]{"keyOne", "keyOne_valueOne"},
                 new String[]{"keyTwo", "keyTwo_valueOne", "keyTwo_valueTwo"}
         );
 
@@ -30,7 +30,7 @@ public class CaseInsensitiveRegexMultiMapTestKeysAndValue {
     public void shouldReturnValues() {
         // given
         CaseInsensitiveRegexMultiMap multiMap = multiMap(
-                new String[]{"keyOne", "keyOne_valueOne"},
+            true, new String[]{"keyOne", "keyOne_valueOne"},
                 new String[]{"keyTwo", "keyTwo_valueOne", "keyTwo_valueTwo"}
         );
 
@@ -39,10 +39,11 @@ public class CaseInsensitiveRegexMultiMapTestKeysAndValue {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     public void shouldReturnEntrySet() {
         // given
         CaseInsensitiveRegexMultiMap multiMap = multiMap(
-                new String[]{"keyOne", "keyOne_valueOne"},
+            true, new String[]{"keyOne", "keyOne_valueOne"},
                 new String[]{"keyTwo", "keyTwo_valueOne", "keyTwo_valueOne", "keyTwo_valueTwo"}
         );
 
@@ -55,10 +56,11 @@ public class CaseInsensitiveRegexMultiMapTestKeysAndValue {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     public void shouldReturnEntryList() {
         // given
         CaseInsensitiveRegexMultiMap multiMap = multiMap(
-                new String[]{"keyOne", "keyOne_valueOne"},
+            true, new String[]{"keyOne", "keyOne_valueOne"},
                 new String[]{"keyTwo", "keyTwo_valueOne", "keyTwo_valueOne", "keyTwo_valueTwo"}
         );
 

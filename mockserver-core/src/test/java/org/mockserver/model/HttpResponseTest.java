@@ -1,10 +1,10 @@
 package org.mockserver.model;
 
-import io.netty.util.CharsetUtil;
 import org.junit.Test;
 import org.mockserver.serialization.Base64Converter;
 
-import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -31,7 +31,7 @@ public class HttpResponseTest {
 
     @Test
     public void shouldAlwaysCreateNewObject() {
-        assertEquals(new HttpResponse().response(), response());
+        assertEquals(response(), response());
         assertNotSame(response(), response());
     }
 
@@ -50,13 +50,13 @@ public class HttpResponseTest {
         assertEquals(base64Converter.bytesToBase64String("somebody".getBytes(UTF_8)), new HttpResponse().withBody("somebody".getBytes(UTF_8)).getBodyAsString());
         assertEquals("somebody", new HttpResponse().withBody("somebody").getBodyAsString());
         assertNull(new HttpResponse().withBody((byte[]) null).getBodyAsString());
-        assertEquals(null, new HttpResponse().withBody((String) null).getBodyAsString());
+        assertNull(new HttpResponse().withBody((String) null).getBodyAsString());
     }
 
     @Test
     public void returnsHeaders() {
         assertEquals(new Header("name", "value"), new HttpResponse().withHeaders(new Header("name", "value")).getHeaderList().get(0));
-        assertEquals(new Header("name", "value"), new HttpResponse().withHeaders(Arrays.asList(new Header("name", "value"))).getHeaderList().get(0));
+        assertEquals(new Header("name", "value"), new HttpResponse().withHeaders(Collections.singletonList(new Header("name", "value"))).getHeaderList().get(0));
         assertEquals(new Header("name", "value"), new HttpRequest().withHeader(new Header("name", "value")).getHeaderList().get(0));
         assertEquals(new Header("name", "value_one", "value_two"), new HttpRequest().withHeader(new Header("name", "value_one")).withHeader(new Header("name", "value_two")).getHeaderList().get(0));
     }
@@ -126,7 +126,7 @@ public class HttpResponseTest {
         assertEquals(new Cookie("name", ""), new HttpResponse().withCookies(new Cookie("name", "")).getCookieList().get(0));
         assertEquals(new Cookie("name", null), new HttpResponse().withCookies(new Cookie("name", null)).getCookieList().get(0));
 
-        assertEquals(new Cookie("name", "value"), new HttpResponse().withCookies(Arrays.asList(new Cookie("name", "value"))).getCookieList().get(0));
+        assertEquals(new Cookie("name", "value"), new HttpResponse().withCookies(Collections.singletonList(new Cookie("name", "value"))).getCookieList().get(0));
 
         assertEquals(new Cookie("name", "value"), new HttpResponse().withCookie(new Cookie("name", "value")).getCookieList().get(0));
         assertEquals(new Cookie("name", "value"), new HttpResponse().withCookie("name", "value").getCookieList().get(0));
@@ -180,7 +180,7 @@ public class HttpResponseTest {
                 "  }" + NEW_LINE +
                 "}",
             response()
-                .withBody("some_body", CharsetUtil.ISO_8859_1)
+                .withBody("some_body", StandardCharsets.ISO_8859_1)
                 .withStatusCode(666)
                 .withReasonPhrase("randomPhrase")
                 .withHeaders(new Header("some_header", "some_header_value"))
@@ -217,5 +217,92 @@ public class HttpResponseTest {
         // then
         assertThat(responseOne, not(sameInstance(responseTwo)));
         assertThat(responseOne, is(responseTwo));
+    }
+
+    @Test
+    public void shouldUpdate() {
+        // given
+        HttpResponse responseOne = response()
+            .withStatusCode(123)
+            .withReasonPhrase("someReasonPhrase")
+            .withBody("some_body")
+            .withHeader("some_header", "some_header_value")
+            .withCookie("some_cookie", "some_cookie_value")
+            .withConnectionOptions(
+                connectionOptions()
+                    .withContentLengthHeaderOverride(10)
+                    .withCloseSocket(true)
+                    .withKeepAliveOverride(true)
+            );
+        HttpResponse responseTwo = response()
+            .withStatusCode(321)
+            .withReasonPhrase("someReasonPhrase_two")
+            .withBody("some_body_two")
+            .withHeader("some_header_two", "some_header_value_two")
+            .withCookie("some_cookie_two", "some_cookie_value_two")
+            .withConnectionOptions(
+                connectionOptions()
+                    .withContentLengthHeaderOverride(100)
+                    .withCloseSocket(false)
+                    .withKeepAliveOverride(false)
+            );
+
+        // when
+        responseOne.update(responseTwo);
+
+        // then
+        assertThat(responseOne, is(
+            response()
+                .withStatusCode(321)
+                .withReasonPhrase("someReasonPhrase_two")
+                .withBody("some_body_two")
+                .withHeader("some_header", "some_header_value")
+                .withHeader("some_header_two", "some_header_value_two")
+                .withCookie("some_cookie", "some_cookie_value")
+                .withCookie("some_cookie_two", "some_cookie_value_two")
+                .withConnectionOptions(
+                    connectionOptions()
+                        .withContentLengthHeaderOverride(100)
+                        .withCloseSocket(false)
+                        .withKeepAliveOverride(false)
+                )
+        ));
+    }
+
+    @Test
+    public void shouldUpdateEmptyResponse() {
+        // given
+        HttpResponse responseOne = response();
+        HttpResponse responseTwo = response()
+            .withStatusCode(321)
+            .withReasonPhrase("someReasonPhrase_two")
+            .withBody("some_body_two")
+            .withHeader("some_header_two", "some_header_value_two")
+            .withCookie("some_cookie_two", "some_cookie_value_two")
+            .withConnectionOptions(
+                connectionOptions()
+                    .withContentLengthHeaderOverride(100)
+                    .withCloseSocket(false)
+                    .withKeepAliveOverride(false)
+            );
+
+        // when
+        responseOne.update(responseTwo);
+
+        // then
+        assertThat(responseOne, is(
+            response()
+                .withStatusCode(321)
+                .withReasonPhrase("someReasonPhrase_two")
+                .withBody("some_body_two")
+                .withHeader("some_header_two", "some_header_value_two")
+                .withCookie("some_cookie_two", "some_cookie_value_two")
+                .withConnectionOptions(
+                    connectionOptions()
+                        .withContentLengthHeaderOverride(100)
+                        .withCloseSocket(false)
+                        .withKeepAliveOverride(false)
+                )
+        ));
     }
 }

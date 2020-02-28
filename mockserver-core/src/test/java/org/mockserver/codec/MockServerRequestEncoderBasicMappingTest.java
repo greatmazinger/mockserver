@@ -1,23 +1,24 @@
 package org.mockserver.codec;
 
-import com.google.common.net.MediaType;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.Cookie;
 import org.mockserver.model.Header;
 import org.mockserver.model.HttpRequest;
+import org.mockserver.model.MediaType;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
 import static io.netty.handler.codec.http.HttpHeaderNames.HOST;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.nullValue;
@@ -33,13 +34,14 @@ import static org.mockserver.model.StringBody.exact;
  */
 public class MockServerRequestEncoderBasicMappingTest {
 
-    private MockServerRequestEncoder mockServerRequestEncoder;
+    private MockServerToNettyRequestEncoder mockServerRequestEncoder;
     private List<Object> output;
     private HttpRequest httpRequest;
+    private final MockServerLogger mockServerLogger = new MockServerLogger();
 
     @Before
     public void setupFixture() {
-        mockServerRequestEncoder = new MockServerRequestEncoder();
+        mockServerRequestEncoder = new MockServerToNettyRequestEncoder(mockServerLogger);
         output = new ArrayList<Object>();
         httpRequest = request();
     }
@@ -61,11 +63,11 @@ public class MockServerRequestEncoderBasicMappingTest {
     public void shouldEncodeQueryParameters() {
         // given
         httpRequest
-                .withPath("/uri")
-                .withQueryStringParameters(
-                        param("queryStringParameterNameOne", "queryStringParameterValueOne_One", "queryStringParameterValueOne_Two"),
-                        param("queryStringParameterNameTwo", "queryStringParameterValueTwo_One")
-                );
+            .withPath("/uri")
+            .withQueryStringParameters(
+                param("queryStringParameterNameOne", "queryStringParameterValueOne_One", "queryStringParameterValueOne_Two"),
+                param("queryStringParameterNameTwo", "queryStringParameterValueTwo_One")
+            );
 
         // when
         mockServerRequestEncoder.encode(null, httpRequest, output);
@@ -73,20 +75,20 @@ public class MockServerRequestEncoderBasicMappingTest {
         // then
         String uri = ((FullHttpRequest) output.get(0)).uri();
         assertThat(uri, is("/uri?" +
-                "queryStringParameterNameOne=queryStringParameterValueOne_One&" +
-                "queryStringParameterNameOne=queryStringParameterValueOne_Two&" +
-                "queryStringParameterNameTwo=queryStringParameterValueTwo_One"));
+            "queryStringParameterNameOne=queryStringParameterValueOne_One&" +
+            "queryStringParameterNameOne=queryStringParameterValueOne_Two&" +
+            "queryStringParameterNameTwo=queryStringParameterValueTwo_One"));
     }
 
     @Test
     public void shouldEscapeQueryParameters() {
         // given
         httpRequest
-                .withPath("/uri")
-                .withQueryStringParameters(
-                        param("parameter name with spaces", "a value with double \"quotes\" and spaces"),
-                        param("another parameter", "a value with single \'quotes\' and spaces")
-                );
+            .withPath("/uri")
+            .withQueryStringParameters(
+                param("parameter name with spaces", "a value with double \"quotes\" and spaces"),
+                param("another parameter", "a value with single 'quotes' and spaces")
+            );
 
         // when
         mockServerRequestEncoder.encode(null, httpRequest, output);
@@ -94,8 +96,8 @@ public class MockServerRequestEncoderBasicMappingTest {
         // then
         String uri = ((FullHttpRequest) output.get(0)).uri();
         assertThat(uri, is("/uri?" +
-                "parameter%20name%20with%20spaces=a%20value%20with%20double%20%22quotes%22%20and%20spaces&" +
-                "another%20parameter=a%20value%20with%20single%20%27quotes%27%20and%20spaces"));
+            "parameter%20name%20with%20spaces=a%20value%20with%20double%20%22quotes%22%20and%20spaces&" +
+            "another%20parameter=a%20value%20with%20single%20%27quotes%27%20and%20spaces"));
     }
 
     @Test
@@ -115,11 +117,11 @@ public class MockServerRequestEncoderBasicMappingTest {
     public void shouldEncodeHeaders() {
         // given
         httpRequest
-                .withHeaders(
-                        new Header("headerName1", "headerValue1"),
-                        new Header("headerName2", "headerValue2_1", "headerValue2_2")
-                )
-                .withHeader(HOST.toString(), "localhost");
+            .withHeaders(
+                new Header("headerName1", "headerValue1"),
+                new Header("headerName2", "headerValue2_1", "headerValue2_2")
+            )
+            .withHeader(HOST.toString(), "localhost");
 
         // when
         mockServerRequestEncoder.encode(null, httpRequest, output);
@@ -142,9 +144,9 @@ public class MockServerRequestEncoderBasicMappingTest {
         // then
         HttpHeaders headers = ((FullHttpRequest) output.get(0)).headers();
         assertThat(headers.names(), containsInAnyOrder(
-                "accept-encoding",
-                "content-length",
-                "connection"
+            "accept-encoding",
+            "content-length",
+            "connection"
         ));
         assertThat(headers.getAll("Accept-Encoding"), containsInAnyOrder("gzip,deflate"));
         assertThat(headers.getAll("Content-Length"), containsInAnyOrder("0"));
@@ -157,11 +159,11 @@ public class MockServerRequestEncoderBasicMappingTest {
         httpRequest.withCookies(new Cookie("cookieName1", "cookieValue1"), new Cookie("cookieName2", "cookieValue2"));
 
         // when
-        new MockServerRequestEncoder().encode(null, httpRequest, output);
+        new MockServerToNettyRequestEncoder(mockServerLogger).encode(null, httpRequest, output);
 
         // then
         HttpHeaders headers = ((FullHttpRequest) output.get(0)).headers();
-        assertThat(headers.getAll("Cookie"), is(Arrays.asList("cookieName1=cookieValue1; cookieName2=cookieValue2")));
+        assertThat(headers.getAll("Cookie"), is(Collections.singletonList("cookieName1=cookieValue1; cookieName2=cookieValue2")));
     }
 
     @Test
@@ -170,7 +172,7 @@ public class MockServerRequestEncoderBasicMappingTest {
         httpRequest.withCookies((Cookie[]) null);
 
         // when
-        new MockServerRequestEncoder().encode(null, httpRequest, output);
+        new MockServerToNettyRequestEncoder(mockServerLogger).encode(null, httpRequest, output);
 
         // then
         HttpHeaders headers = ((FullHttpRequest) output.get(0)).headers();
@@ -183,7 +185,7 @@ public class MockServerRequestEncoderBasicMappingTest {
         httpRequest.withBody("somebody");
 
         // when
-        new MockServerRequestEncoder().encode(null, httpRequest, output);
+        new MockServerToNettyRequestEncoder(mockServerLogger).encode(null, httpRequest, output);
 
         // then
         FullHttpRequest fullHttpRequest = (FullHttpRequest) output.get(0);
@@ -197,7 +199,7 @@ public class MockServerRequestEncoderBasicMappingTest {
         httpRequest.withBody(exact("somebody", MediaType.HTML_UTF_8));
 
         // when
-        new MockServerRequestEncoder().encode(null, httpRequest, output);
+        new MockServerToNettyRequestEncoder(mockServerLogger).encode(null, httpRequest, output);
 
         // then
         FullHttpRequest fullHttpRequest = (FullHttpRequest) output.get(0);
@@ -211,7 +213,7 @@ public class MockServerRequestEncoderBasicMappingTest {
         httpRequest.withBody(binary("somebody".getBytes(UTF_8)));
 
         // when
-        new MockServerRequestEncoder().encode(null, httpRequest, output);
+        new MockServerToNettyRequestEncoder(mockServerLogger).encode(null, httpRequest, output);
 
         // then
         FullHttpRequest fullHttpRequest = (FullHttpRequest) output.get(0);
@@ -225,7 +227,7 @@ public class MockServerRequestEncoderBasicMappingTest {
         httpRequest.withBody(binary("somebody".getBytes(UTF_8), MediaType.QUICKTIME));
 
         // when
-        new MockServerRequestEncoder().encode(null, httpRequest, output);
+        new MockServerToNettyRequestEncoder(mockServerLogger).encode(null, httpRequest, output);
 
         // then
         FullHttpRequest fullHttpRequest = (FullHttpRequest) output.get(0);
@@ -239,7 +241,7 @@ public class MockServerRequestEncoderBasicMappingTest {
         httpRequest.withBody((String) null);
 
         // when
-        new MockServerRequestEncoder().encode(null, httpRequest, output);
+        new MockServerToNettyRequestEncoder(mockServerLogger).encode(null, httpRequest, output);
 
         // then
         FullHttpRequest fullHttpRequest = (FullHttpRequest) output.get(0);

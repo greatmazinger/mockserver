@@ -12,8 +12,6 @@ import org.mockserver.logging.MockServerLogger;
 import org.mockserver.mock.Expectation;
 import org.mockserver.validator.jsonschema.JsonSchemaExpectationValidator;
 
-import java.io.IOException;
-
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.*;
 import static org.mockito.MockitoAnnotations.initMocks;
@@ -25,7 +23,7 @@ import static org.mockserver.character.Character.NEW_LINE;
 public class ExpectationSerializationErrorsTest {
 
     @Rule
-    public ExpectedException thrown = ExpectedException.none();
+    public final ExpectedException thrown = ExpectedException.none();
     @Mock
     private ObjectMapper objectMapper;
     @Mock
@@ -45,14 +43,15 @@ public class ExpectationSerializationErrorsTest {
     }
 
     @Test
-    public void shouldHandleNullAndEmptyWhileSerializingArray() throws IOException {
+    @SuppressWarnings("RedundantArrayCreation")
+    public void shouldHandleNullAndEmptyWhileSerializingArray() {
         // when
         assertEquals("[]", expectationSerializer.serialize(new Expectation[]{}));
         assertEquals("[]", expectationSerializer.serialize((Expectation[]) null));
     }
 
     @Test
-    public void shouldValidateInputForObject() throws IOException {
+    public void shouldValidateInputForObject() {
         // given
         thrown.expect(IllegalArgumentException.class);
         thrown.expectMessage("1 error:" + NEW_LINE + " - an expectation is required but value was \"\"");
@@ -61,11 +60,11 @@ public class ExpectationSerializationErrorsTest {
     }
 
     @Test
-    public void shouldValidateInputForArray() throws IOException {
+    public void shouldValidateInputForArray() {
         // given
         thrown.expect(IllegalArgumentException.class);
         thrown.expectMessage("1 error:" + NEW_LINE + " - an expectation or expectation array is required but value was \"\"");
         // when
-        expectationSerializer.deserializeArray("");
+        expectationSerializer.deserializeArray("", false);
     }
 }

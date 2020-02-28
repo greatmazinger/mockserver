@@ -19,13 +19,15 @@ import static org.mockserver.model.StringBody.exact;
 import static org.mockserver.model.XPathBody.xpath;
 import static org.mockserver.model.XmlBody.xml;
 import static org.mockserver.model.XmlSchemaBody.xmlSchema;
+import static org.mockserver.validator.jsonschema.JsonSchemaHttpRequestValidator.jsonSchemaHttpRequestValidator;
+import static org.mockserver.validator.jsonschema.JsonSchemaValidator.OPEN_API_SPECIFICATION_URL;
 
 /**
  * @author jamesdbloom
  */
 public class JsonSchemaHttpRequestValidatorIntegrationTest {
 
-    private JsonSchemaValidator jsonSchemaValidator = new JsonSchemaHttpRequestValidator(new MockServerLogger());
+    private final JsonSchemaValidator jsonSchemaValidator = jsonSchemaHttpRequestValidator(new MockServerLogger());
 
     @Test
     public void shouldValidateValidCompleteRequestFromRawJson() {
@@ -51,7 +53,12 @@ public class JsonSchemaHttpRequestValidatorIntegrationTest {
             "    \"headers\" : [ {" + NEW_LINE +
             "      \"name\" : \"someHeaderName\"," + NEW_LINE +
             "      \"values\" : [ \"someHeaderValue\" ]" + NEW_LINE +
-            "    } ]" + NEW_LINE +
+            "    } ]," + NEW_LINE +
+            "  \"socketAddress\" : {" + NEW_LINE +
+            "    \"host\" : \"someHost\"," + NEW_LINE +
+            "    \"port\" : 1234," + NEW_LINE +
+            "    \"scheme\" : \"HTTPS\"" + NEW_LINE +
+            "  }" + NEW_LINE +
             "  }"), is(""));
     }
 
@@ -255,17 +262,32 @@ public class JsonSchemaHttpRequestValidatorIntegrationTest {
     }
 
     @Test
-    public void shouldValidateInvalidBodyFields() {
+    public void shouldValidateValidShortHandJsonObjectBodyType() {
         // when
         assertThat(jsonSchemaValidator.isValid("{" + NEW_LINE +
-                "    \"body\" : {" + NEW_LINE +
-                "      \"type\" : \"STRING\"," + NEW_LINE +
-                "      \"value\" : \"someBody\"" + NEW_LINE +
-                "    }" + NEW_LINE +
+                "    \"body\" : {\"foo\":\"bar\"}" + NEW_LINE +
+                "  }"),
+            is(""));
+    }
+
+    @Test
+    public void shouldValidateValidShortHandJsonArrayBodyType() {
+        // when
+        assertThat(jsonSchemaValidator.isValid("{" + NEW_LINE +
+                "    \"body\" : [{\"foo\":\"bar\"},{\"bar\":\"foo\"}]" + NEW_LINE +
+                "  }"),
+            is(""));
+    }
+
+    @Test
+    public void shouldValidateInvalidBodyType() {
+        // when
+        assertThat(jsonSchemaValidator.isValid("{" + NEW_LINE +
+                "    \"body\" : 1" + NEW_LINE +
                 "  }"),
             is(
                 "1 error:" + NEW_LINE +
-                    " - for field \"/body\" a plain string or one of the following example bodies must be specified " + NEW_LINE +
+                    " - for field \"/body\" a plain string, JSON object or one of the following example bodies must be specified " + NEW_LINE +
                     "   {" + NEW_LINE +
                     "     \"not\": false," + NEW_LINE +
                     "     \"type\": \"BINARY\"," + NEW_LINE +
@@ -319,7 +341,9 @@ public class JsonSchemaHttpRequestValidatorIntegrationTest {
                     "     \"not\": false," + NEW_LINE +
                     "     \"type\": \"XPATH\"," + NEW_LINE +
                     "     \"xpath\": \"\"" + NEW_LINE +
-                    "   }"
+                    "   }" + NEW_LINE +
+                    NEW_LINE +
+                    OPEN_API_SPECIFICATION_URL
             ));
     }
 
@@ -334,7 +358,9 @@ public class JsonSchemaHttpRequestValidatorIntegrationTest {
                 "  }"),
             is(
                 "1 error:" + NEW_LINE +
-                    " - object instance has properties which are not allowed by the schema: [\"invalidField\"]"
+                    " - object instance has properties which are not allowed by the schema: [\"invalidField\"]" + NEW_LINE +
+                    NEW_LINE +
+                    OPEN_API_SPECIFICATION_URL
             ));
     }
 
@@ -348,7 +374,9 @@ public class JsonSchemaHttpRequestValidatorIntegrationTest {
             is(
                 "2 errors:" + NEW_LINE +
                     " - instance type (integer) does not match any allowed primitive type (allowed: [\"string\"]) for field \"/method\"" + NEW_LINE +
-                    " - instance type (boolean) does not match any allowed primitive type (allowed: [\"string\"]) for field \"/path\""
+                    " - instance type (boolean) does not match any allowed primitive type (allowed: [\"string\"]) for field \"/path\"" + NEW_LINE +
+                    NEW_LINE +
+                    OPEN_API_SPECIFICATION_URL
             ));
     }
 
@@ -378,7 +406,9 @@ public class JsonSchemaHttpRequestValidatorIntegrationTest {
                     "            \"name\" : \"exampleMultiValuedHeaderName\"," + NEW_LINE +
                     "            \"values\" : [ \"exampleHeaderValueOne\", \"exampleHeaderValueTwo\" ]" + NEW_LINE +
                     "        }" + NEW_LINE +
-                    "    ]"
+                    "    ]" + NEW_LINE +
+                    NEW_LINE +
+                    OPEN_API_SPECIFICATION_URL
             ));
     }
 

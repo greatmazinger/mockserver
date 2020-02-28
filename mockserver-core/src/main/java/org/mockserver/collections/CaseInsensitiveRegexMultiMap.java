@@ -1,13 +1,14 @@
 package org.mockserver.collections;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.mockserver.logging.MockServerLogger;
 import org.mockserver.matchers.RegexStringMatcher;
 import org.mockserver.model.NottableString;
 import org.mockserver.model.ObjectWithReflectiveEqualsHashCodeToString;
 
 import java.util.*;
 
-import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.mockserver.model.NottableString.string;
 import static org.mockserver.model.NottableString.strings;
 
@@ -17,10 +18,18 @@ import static org.mockserver.model.NottableString.strings;
  * @author jamesdbloom
  */
 public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHashCodeToString implements Map<NottableString, NottableString> {
-    private final CaseInsensitiveNottableRegexListHashMap backingMap = new CaseInsensitiveNottableRegexListHashMap();
+    private final CaseInsensitiveNottableRegexListHashMap backingMap;
 
-    public static CaseInsensitiveRegexMultiMap multiMap(String[]... keyAndValues) {
-        CaseInsensitiveRegexMultiMap multiMap = new CaseInsensitiveRegexMultiMap();
+    private final RegexStringMatcher regexStringMatcher;
+
+    public CaseInsensitiveRegexMultiMap(MockServerLogger mockServerLogger, boolean controlPlaneMatcher) {
+        regexStringMatcher = new RegexStringMatcher(mockServerLogger, controlPlaneMatcher);
+        backingMap = new CaseInsensitiveNottableRegexListHashMap(mockServerLogger, controlPlaneMatcher);
+    }
+
+    @VisibleForTesting
+    public static CaseInsensitiveRegexMultiMap multiMap(boolean controlPlaneMatcher, String[]... keyAndValues) {
+        CaseInsensitiveRegexMultiMap multiMap = new CaseInsensitiveRegexMultiMap(new MockServerLogger(), controlPlaneMatcher);
         for (String[] keyAndValue : keyAndValues) {
             for (int i = 1; i < keyAndValue.length; i++) {
                 multiMap.put(keyAndValue[0], keyAndValue[i]);
@@ -29,8 +38,9 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
         return multiMap;
     }
 
-    public static CaseInsensitiveRegexMultiMap multiMap(NottableString[]... keyAndValues) {
-        CaseInsensitiveRegexMultiMap multiMap = new CaseInsensitiveRegexMultiMap();
+    @VisibleForTesting
+    public static CaseInsensitiveRegexMultiMap multiMap(boolean controlPlaneMatcher, NottableString[]... keyAndValues) {
+        CaseInsensitiveRegexMultiMap multiMap = new CaseInsensitiveRegexMultiMap(new MockServerLogger(), controlPlaneMatcher);
         for (NottableString[] keyAndValue : keyAndValues) {
             for (int i = 1; i < keyAndValue.length; i++) {
                 multiMap.put(keyAndValue[0], keyAndValue[i]);
@@ -44,7 +54,7 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
     }
 
     public boolean containsAll(CaseInsensitiveRegexMultiMap subSet) {
-        if (size() == 0 && subSet.allKeysNotted()) {
+        if (isEmpty() && subSet.allKeysNotted()) {
             return true;
         } else {
             for (Entry<NottableString, NottableString> entry : subSet.entryList()) {
@@ -63,10 +73,12 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
         return true;
     }
 
-    private boolean allKeysNotted() {
-        for (NottableString key : keySet()) {
-            if (!key.isNot()) {
-                return false;
+    public boolean allKeysNotted() {
+        if (!isEmpty()) {
+            for (NottableString key : keySet()) {
+                if (!key.isNot()) {
+                    return false;
+                }
             }
         }
         return true;
@@ -77,23 +89,25 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
     }
 
     public synchronized boolean containsKeyValue(NottableString key, NottableString value) {
-        for (NottableString valueToMatch : getAll(key)) {
-            if (RegexStringMatcher.matches(value, valueToMatch, true)) {
-                return true;
+        if (!isEmpty()) {
+            for (NottableString valueToMatch : getAll(key)) {
+                if (regexStringMatcher.matches(value, valueToMatch, true)) {
+                    return true;
+                }
             }
         }
         return false;
     }
 
     private synchronized Entry<NottableString, NottableString> retrieveEntry(NottableString key, NottableString value) {
-
-        for (Entry<NottableString, NottableString> matcherEntry : entryList()) {
-            if (RegexStringMatcher.matches(value, matcherEntry.getValue(), true)
-                && RegexStringMatcher.matches(key, matcherEntry.getKey(), true)) {
-                return matcherEntry;
+        if (!isEmpty()) {
+            for (Entry<NottableString, NottableString> matcherEntry : entryList()) {
+                if (regexStringMatcher.matches(value, matcherEntry.getValue(), true)
+                    && regexStringMatcher.matches(key, matcherEntry.getKey(), true)) {
+                    return matcherEntry;
+                }
             }
         }
-
         return null;
     }
 
@@ -104,33 +118,39 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
 
     @Override
     public synchronized boolean containsValue(Object value) {
-        if (value instanceof NottableString) {
-            for (NottableString key : backingMap.keySet()) {
-                for (List<NottableString> allKeyValues : backingMap.getAll(key)) {
-                    for (NottableString keyValue : allKeyValues) {
-                        if (RegexStringMatcher.matches(keyValue, (NottableString) value, false)) {
-                            return true;
+        if (!isEmpty()) {
+            if (value instanceof NottableString) {
+                for (NottableString key : backingMap.keySet()) {
+                    for (List<NottableString> allKeyValues : backingMap.getAll(key)) {
+                        for (NottableString keyValue : allKeyValues) {
+                            if (regexStringMatcher.matches(keyValue, (NottableString) value, false)) {
+                                return true;
+                            }
                         }
                     }
                 }
+            } else if (value instanceof String) {
+                return containsValue(string((String) value));
             }
-        } else if (value instanceof String) {
-            return containsValue(string((String) value));
         }
         return false;
     }
 
     @Override
     public synchronized NottableString get(Object key) {
-        if (key instanceof String) {
-            return get(string((String) key));
-        } else {
-            List<NottableString> values = backingMap.get(key);
-            if (values != null && values.size() > 0) {
-                return values.get(0);
+        if (!isEmpty()) {
+            if (key instanceof String) {
+                return get(string((String) key));
             } else {
-                return null;
+                List<NottableString> values = backingMap.get(key);
+                if (values != null && values.size() > 0) {
+                    return values.get(0);
+                } else {
+                    return null;
+                }
             }
+        } else {
+            return null;
         }
     }
 
@@ -139,11 +159,15 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
     }
 
     public synchronized List<NottableString> getAll(NottableString key) {
-        List<NottableString> all = new ArrayList<NottableString>();
-        for (List<NottableString> subList : backingMap.getAll(key)) {
-            all.addAll(subList);
+        if (!isEmpty()) {
+            List<NottableString> all = new ArrayList<>();
+            for (List<NottableString> subList : backingMap.getAll(key)) {
+                all.addAll(subList);
+            }
+            return all;
+        } else {
+            return Collections.emptyList();
         }
-        return all;
     }
 
     public synchronized NottableString put(String key, String value) {
@@ -160,7 +184,7 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
         }
         List<NottableString> list = Collections.synchronizedList(new ArrayList<NottableString>());
         for (Entry<NottableString, NottableString> entry : entryList()) {
-            if (EqualsBuilder.reflectionEquals(entry.getKey(), key)) {
+            if (EqualsBuilder.reflectionEquals(entry.getKey(), key, "key")) {
                 list.add(entry.getValue());
             }
         }
@@ -186,19 +210,23 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
 
     @Override
     public synchronized NottableString remove(Object key) {
-        if (key instanceof String) {
-            return remove(string((String) key));
-        } else {
-            List<NottableString> values = backingMap.get(key);
-            if (values != null && values.size() > 0) {
-                NottableString removed = values.remove(0);
-                if (values.size() == 0) {
-                    backingMap.remove(key);
-                }
-                return removed;
+        if (!isEmpty()) {
+            if (key instanceof String) {
+                return remove(string((String) key));
             } else {
-                return null;
+                List<NottableString> values = backingMap.get(key);
+                if (values != null && values.size() > 0) {
+                    NottableString removed = values.remove(0);
+                    if (values.size() == 0) {
+                        backingMap.remove(key);
+                    }
+                    return removed;
+                } else {
+                    return null;
+                }
             }
+        } else {
+            return null;
         }
     }
 
@@ -224,37 +252,53 @@ public class CaseInsensitiveRegexMultiMap extends ObjectWithReflectiveEqualsHash
 
     @Override
     public synchronized Set<NottableString> keySet() {
-        return backingMap.keySet();
+        if (!isEmpty()) {
+            return backingMap.keySet();
+        } else {
+            return Collections.emptySet();
+        }
     }
 
     @Override
     public synchronized Collection<NottableString> values() {
-        Collection<NottableString> values = new ArrayList<NottableString>();
-        for (List<NottableString> valuesForKey : backingMap.values()) {
-            values.addAll(valuesForKey);
+        if (!isEmpty()) {
+            Collection<NottableString> values = new ArrayList<NottableString>();
+            for (List<NottableString> valuesForKey : backingMap.values()) {
+                values.addAll(valuesForKey);
+            }
+            return values;
+        } else {
+            return Collections.emptyList();
         }
-        return values;
     }
 
     @Override
     public synchronized Set<Entry<NottableString, NottableString>> entrySet() {
-        Set<Entry<NottableString, NottableString>> entrySet = new LinkedHashSet<Entry<NottableString, NottableString>>();
-        for (Entry<NottableString, List<NottableString>> entry : backingMap.entrySet()) {
-            for (NottableString value : entry.getValue()) {
-                entrySet.add(new ImmutableEntry(entry.getKey(), value));
+        if (!isEmpty()) {
+            Set<Entry<NottableString, NottableString>> entrySet = new LinkedHashSet<Entry<NottableString, NottableString>>();
+            for (Entry<NottableString, List<NottableString>> entry : backingMap.entrySet()) {
+                for (NottableString value : entry.getValue()) {
+                    entrySet.add(new ImmutableEntry(entry.getKey(), value));
+                }
             }
+            return entrySet;
+        } else {
+            return Collections.emptySet();
         }
-        return entrySet;
     }
 
     public synchronized List<Entry<NottableString, NottableString>> entryList() {
-        List<Entry<NottableString, NottableString>> entrySet = new ArrayList<Entry<NottableString, NottableString>>();
-        for (Entry<NottableString, List<NottableString>> entry : backingMap.entrySet()) {
-            for (NottableString value : entry.getValue()) {
-                entrySet.add(new ImmutableEntry(entry.getKey(), value));
+        if (!isEmpty()) {
+            List<Entry<NottableString, NottableString>> entrySet = new ArrayList<>();
+            for (Entry<NottableString, List<NottableString>> entry : backingMap.entrySet()) {
+                for (NottableString value : entry.getValue()) {
+                    entrySet.add(new ImmutableEntry(entry.getKey(), value));
+                }
             }
+            return entrySet;
+        } else {
+            return Collections.emptyList();
         }
-        return entrySet;
     }
 
     @Override

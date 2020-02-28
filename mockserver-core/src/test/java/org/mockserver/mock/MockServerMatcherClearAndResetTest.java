@@ -2,7 +2,7 @@ package org.mockserver.mock;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.mockserver.callback.WebSocketClientRegistry;
+import org.mockserver.closurecallback.websocketregistry.WebSocketClientRegistry;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.matchers.HttpRequestMatcher;
 import org.mockserver.matchers.MatcherBuilder;
@@ -19,6 +19,7 @@ import java.util.List;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -60,8 +61,8 @@ public class MockServerMatcherClearAndResetTest {
         mockServerMatcher.add(expectation);
 
         // and
-        assertEquals(expectation, mockServerMatcher.firstMatchingExpectation(request().withPath("somepath")));
-        assertEquals(expectation, mockServerMatcher.firstMatchingExpectation(request().withPath("somepath")));
+        assertEquals(expectation, mockServerMatcher.postProcess(mockServerMatcher.firstMatchingExpectation(request().withPath("somepath"))));
+        assertEquals(expectation, mockServerMatcher.postProcess(mockServerMatcher.firstMatchingExpectation(request().withPath("somepath"))));
 
         // then
         assertThat(mockServerMatcher.httpRequestMatchers, is(empty()));

@@ -2,13 +2,16 @@ package org.mockserver.cli;
 
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Test;
 import org.mockserver.client.MockServerClient;
 import org.mockserver.client.NettyHttpClient;
 import org.mockserver.configuration.ConfigurationProperties;
 import org.mockserver.echo.http.EchoServer;
+import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.HttpResponse;
+import org.mockserver.scheduler.Scheduler;
 import org.mockserver.socket.PortFactory;
 import org.slf4j.event.Level;
 
@@ -32,11 +35,17 @@ import static org.mockserver.stop.Stop.stopQuietly;
  */
 public class MainTest {
 
-    private static EventLoopGroup clientEventLoopGroup = new NioEventLoopGroup();
+    private static final EventLoopGroup clientEventLoopGroup = new NioEventLoopGroup(3, new Scheduler.SchedulerThreadFactory(MainTest.class.getSimpleName() + "-eventLoop"));
 
     @AfterClass
     public static void stopEventLoopGroup() {
         clientEventLoopGroup.shutdownGracefully(0, 0, MILLISECONDS).syncUninterruptibly();
+        Main.usageShown = false;
+    }
+
+    @After
+    public void clearUsageShown() {
+        Main.usageShown = false;
     }
 
     @Test
@@ -54,7 +63,7 @@ public class MainTest {
             );
 
             // then
-            assertThat(mockServerClient.isRunning(), is(true));
+            assertThat(mockServerClient.hasStarted(), is(true));
             assertThat(ConfigurationProperties.logLevel().toString(), is("DEBUG"));
         } finally {
             ConfigurationProperties.logLevel(originalLogLevel.toString());
@@ -77,7 +86,7 @@ public class MainTest {
                 "-proxyRemotePort", String.valueOf(echoServer.getPort()),
                 "-proxyRemoteHost", "127.0.0.1"
             );
-            final HttpResponse response = new NettyHttpClient(clientEventLoopGroup, null)
+            final HttpResponse response = new NettyHttpClient(new MockServerLogger(), clientEventLoopGroup, null, false)
                 .sendRequest(
                     request()
                         .withHeader(HOST.toString(), "127.0.0.1:" + freePort),
@@ -86,7 +95,7 @@ public class MainTest {
                 );
 
             // then
-            assertThat(mockServerClient.isRunning(), is(true));
+            assertThat(mockServerClient.hasStarted(), is(true));
             assertThat(response.getBodyAsString(), is("port_forwarded_response"));
         } finally {
             stopQuietly(mockServerClient);
@@ -107,7 +116,7 @@ public class MainTest {
                 "-serverPort", String.valueOf(freePort),
                 "-proxyRemotePort", String.valueOf(echoServer.getPort())
             );
-            final HttpResponse response = new NettyHttpClient(clientEventLoopGroup, null)
+            final HttpResponse response = new NettyHttpClient(new MockServerLogger(), clientEventLoopGroup, null, false)
                 .sendRequest(
                     request()
                         .withHeader(HOST.toString(), "127.0.0.1:" + freePort),
@@ -116,7 +125,7 @@ public class MainTest {
                 );
 
             // then
-            assertThat(mockServerClient.isRunning(), is(true));
+            assertThat(mockServerClient.hasStarted(), is(true));
             assertThat(response.getBodyAsString(), is("port_forwarded_response"));
         } finally {
             stopQuietly(mockServerClient);
@@ -215,9 +224,9 @@ public class MainTest {
             // then
             String actual = new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8);
             String expected = NEW_LINE +
-                "   =======================================================================================================" + NEW_LINE +
-                "   logLevel value \"FOO\" is invalid, please specify one of \"TRACE\", \"DEBUG\", \"INFO\", \"WARN\", \"ERROR\", \"OFF\"" + NEW_LINE +
-                "   =======================================================================================================" + NEW_LINE +
+                "   ====================================================================================================================================================================================================" + NEW_LINE +
+                "   logLevel value \"FOO\" is invalid, please specify one of SL4J levels: \"TRACE\", \"DEBUG\", \"INFO\", \"WARN\", \"ERROR\", \"OFF\" or the Java Logger levels: \"FINEST\", \"FINE\", \"INFO\", \"WARNING\", \"SEVERE\", \"OFF\"" + NEW_LINE +
+                "   ====================================================================================================================================================================================================" + NEW_LINE +
                 NEW_LINE +
                 Main.USAGE;
             assertThat(actual, is(expected));

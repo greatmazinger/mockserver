@@ -1,20 +1,22 @@
 package org.mockserver.lifecycle;
 
-import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.mockserver.client.MockServerClient;
 import org.mockserver.integration.ClientAndServer;
-import org.mockserver.mockserver.MockServer;
-import org.mockserver.model.HttpRequest;
+import org.mockserver.netty.MockServer;
 import org.mockserver.socket.PortFactory;
 
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.hamcrest.CoreMatchers.anyOf;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
@@ -26,22 +28,23 @@ import static org.mockserver.model.HttpRequest.request;
  */
 public class StopIntegrationTest {
 
-    private final static int MOCK_SERVER_PORT = PortFactory.findFreePort();
+    private static final int MOCK_SERVER_PORT = PortFactory.findFreePort();
 
     @Rule
-    public ExpectedException exception = ExpectedException.none();
+    public final ExpectedException exception = ExpectedException.none();
 
     @Test
     public void returnsExceptionWhenAlreadyStopped() {
         // given
         exception.expect(IllegalStateException.class);
-        exception.expectMessage(Matchers.containsString("Request sent after client has been stopped - the event loop has been shutdown so it is not possible to send a request"));
+        exception.expectMessage(containsString("Request sent after client has been stopped - the event loop has been shutdown so it is not possible to send a request"));
 
         // when - server started
         new MockServer(MOCK_SERVER_PORT);
 
         // and - start client
         MockServerClient mockServerClient = new MockServerClient("localhost", MOCK_SERVER_PORT);
+        mockServerClient.hasStarted();
         mockServerClient.stop();
 
         // then
@@ -49,7 +52,7 @@ public class StopIntegrationTest {
     }
 
     @Test
-    public void canStartAndStopMultipleTimesViaClient() {
+    public void canStartAndStopMultipleTimesViaClient() throws ExecutionException, InterruptedException, TimeoutException {
         // start server
         new MockServer(MOCK_SERVER_PORT);
 
@@ -62,18 +65,19 @@ public class StopIntegrationTest {
             mockServerClient = new MockServerClient("localhost", MOCK_SERVER_PORT);
 
             // then
-            assertFalse(mockServerClient.isRunning());
+            assertTrue(mockServerClient.hasStopped());
             new MockServer(MOCK_SERVER_PORT);
-            assertTrue(mockServerClient.isRunning());
+            assertTrue(mockServerClient.hasStarted());
         }
 
-        assertTrue(mockServerClient.isRunning());
-        mockServerClient.stop();
+        assertTrue(mockServerClient.hasStarted());
+        mockServerClient.stopAsync().get(10, SECONDS);
         mockServerClient = new MockServerClient("localhost", MOCK_SERVER_PORT);
-        assertFalse(mockServerClient.isRunning());
+        assertTrue(mockServerClient.hasStopped());
     }
 
     @Test
+    @Deprecated
     public void reportsIsRunningCorrectlyAfterClientStopped() {
         // start server
         MockServerClient mockServerClient = ClientAndServer.startClientAndServer();
@@ -83,7 +87,34 @@ public class StopIntegrationTest {
 
         // then
         assertFalse(mockServerClient.isRunning());
-        assertFalse(mockServerClient.isRunning(10, 10000, TimeUnit.MILLISECONDS));
+        assertFalse(mockServerClient.isRunning(10, 1000, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    public void reportsHasStoppedCorrectlyAfterClientStopped() {
+        // start server
+        MockServerClient mockServerClient = ClientAndServer.startClientAndServer();
+
+        // when
+        mockServerClient.stop();
+
+        // then
+        assertTrue(mockServerClient.hasStopped());
+        assertTrue(mockServerClient.hasStopped(10, 1000, TimeUnit.MILLISECONDS));
+    }
+
+
+    @Test
+    public void reportsHasStartedCorrectlyAfterClientStarted() {
+        // when
+        MockServerClient mockServerClient = ClientAndServer.startClientAndServer();
+
+        // then
+        assertTrue(mockServerClient.hasStarted());
+        assertTrue(mockServerClient.hasStarted(10, 1000, TimeUnit.MILLISECONDS));
+
+        // clean-up
+        mockServerClient.stop();
     }
 
     @Test
@@ -119,12 +150,15 @@ public class StopIntegrationTest {
             new Socket("localhost", MOCK_SERVER_PORT);
             fail("socket should be closed");
         } catch (IOException ioe) {
-            assertThat(ioe.getMessage(), containsString("Connection refused"));
+            assertThat(ioe.getMessage(), anyOf(
+                containsString("Connection refused"),
+                containsString("Socket closed")
+            ));
         }
     }
 
     @Test
-    public void freesPortBeforeStopMethodReturns() throws IOException {
+    public void freesPortBeforeStopMethodReturns() {
         // start server
         MockServer mockServer = new MockServer(MOCK_SERVER_PORT);
 
@@ -132,16 +166,10 @@ public class StopIntegrationTest {
         mockServer.stop();
 
         // then
-        ServerSocket serverSocket = null;
-        try {
-            serverSocket = new ServerSocket(MOCK_SERVER_PORT);
+        try (ServerSocket serverSocket = new ServerSocket(MOCK_SERVER_PORT)) {
             assertThat(serverSocket.isBound(), is(true));
         } catch (IOException ioe) {
             fail("port should be freed");
-        } finally {
-            if (serverSocket != null) {
-                serverSocket.close();
-            }
         }
     }
 }

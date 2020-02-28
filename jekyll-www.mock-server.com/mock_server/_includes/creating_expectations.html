@@ -30,18 +30,30 @@ mockServerClient("localhost", 1080).mockAnyResponse({
     "httpRequest": {
         "method": "POST",
         "path": "/login",
-        "body": "{username: 'foo', password: 'bar'}"
+        "body": {
+            "username": "foo",
+            "password": "bar"
+        }
     },
     "httpResponse": {
         "statusCode": 302,
         "headers": {
-            "Location" : [ "https://www.mock-server.com" ]
+            "Location": [
+                "https://www.mock-server.com"
+            ]
         },
         "cookies": {
-            "sessionId" : "2By8LOhBmaW5nZXJwcmludCIlMDAzMW"
+            "sessionId": "2By8LOhBmaW5nZXJwcmludCIlMDAzMW"
         }
     }
-});</code></pre>
+}).then(
+    function () {
+        console.log("expectation created");
+    },
+    function (error) {
+        console.log(error);
+    }
+);</code></pre>
 </div>
 
 <p>An expectation contains:</p>
@@ -54,7 +66,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
 
 <p>MockServer will play expectations in the exact order they are added. For example, if an expectation <span class="annotation">A</span> is added with <span class="inline_code">Times.exactly(3)</span> then expectation <span class="annotation">B</span> is added with <span class="inline_code">Times.exactly(2)</span> with the same request matcher they will be applied in the following order <span class="annotation">A</span>, <span class="annotation">A</span>, <span class="annotation">A</span>, <span class="annotation">B</span>, <span class="annotation">B</span>.</p>
 
-<a name="request_matchers" class="anchor" href="#request_matchers">&nbsp;</a>
+<a id="request_matchers" class="anchor" href="#request_matchers">&nbsp;</a>
 
 <h3>Request Matchers</h3>
 
@@ -77,6 +89,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
             <li><strong><a href="#button_match_request_by_body_with_xml_schema">XML Schema</a></strong></li>
             <li><strong><a href="#button_match_request_by_body_with_xpath">XPath</a></strong> - matches if at least one value returned by expression</li>
             <li><strong><a href="#button_match_request_by_form_submission_body">form fields</a></strong> (i.e. body parameters)</li>
+            <li><strong><a href="#button_match_request_by_binary_body">binary</a></strong></li>
             <li><strong><a href="#button_match_request_by_not_matching_body_with_xpath">negated matcher</a></strong></li>
         </ul>
     <li><strong>secure</strong> - true if the request was made using HTTPS</li>
@@ -87,7 +100,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
     {% include_subpage _includes/request_matcher_code_examples.html %}
 </div>
 
-<a name="actions" class="anchor" href="#actions">&nbsp;</a>
+<a id="actions" class="anchor" href="#actions">&nbsp;</a>
 
 <h3>Actions</h3>
 
@@ -98,22 +111,28 @@ mockServerClient("localhost", 1080).mockAnyResponse({
             <li>a <strong><a href="#button_response_literal_body_only">literal</a></strong></li>
             <li>a <strong><a href="#button_javascript_templated_response">javascript template</a></strong></li>
             <li>a <strong><a href="#button_javascript_velocity_templated_response">velocity template</a></strong></li>
-            <li>a <strong><a href="#button_response_class_callback">server side callback</a></strong> (via classpath)</li>
-            <li>a <strong><a href="#button_response_method_or_closure_callback">client side callback</a></strong> (via WebSocket)</li>
+            <li>a <strong><a href="#button_response_class_callback">class callback</a></strong> (must be present in classpath)</li>
+            <li>a <strong><a href="#button_response_method_or_closure_callback">method / closure callback</a></strong> (via WebSocket)</li>
         </ul></li>
-    <li><strong><a href="#forward_action">forward</a></strong> - forwards requests defined by using
+    <li><strong><a href="#forward_action">forward</a></strong> - forwards modified requests and returns modified response by using
         <ul>
-            <li>the <strong><a href="#button_forward_exactly">exact request received</a></strong></li>
-            <li>an <strong><a href="#button_forward_overridden">overridden request</a></strong></li>
-            <li>a <strong><a href="#button_javascript_templated_forward">javascript template</a></strong></li>
-            <li>a <strong><a href="#button_javascript_velocity_templated_forward">velocity template</a></strong></li>
-            <li>a <strong><a href="#button_forward_class_callback">server side callback</a></strong> (via classpath)</li>
-            <li>a <strong><a href="#button_forward_method_or_closure_callback">client side callback</a></strong> (via WebSocket)</li>
+            <li>the <strong><a href="#button_forward_exactly">exact request and response received</a></strong></li>
+            <li>an <strong><a href="#button_forward_overridden">static overridden for request and / or response</a></strong></li>
+            <li>a <strong><a href="#button_javascript_templated_forward">javascript template (request only)</a></strong></li>
+            <li>a <strong><a href="#button_javascript_velocity_templated_forward">velocity template (request only)</a></strong></li>
+            <li>a <strong><a href="#button_forward_class_callback">class callback for request and / or response</a></strong> (must be present in classpath)</li>
+            <li>a <strong><a href="#button_forward_method_or_closure_callback">method / closure callback for request and / or response</a></strong> (via WebSocket)</li>
         </ul></li>
     <li><strong><a href="#error_action">error</a></strong> - returns an invalid response as a sequence of bytes or closes the connection</li>
 </ul>
 
-<a name="response_action" class="anchor" href="#response_action">&nbsp;</a>
+<p>If no action is present for a request because no <a href="#request_matchers">request matcher</a> was matched then:</p>
+<ul>
+    <li>if MockServer is being used as a proxy the request is proxied to its destination un-modified</li>
+    <li>if the request host header does not match the hostname or IP the request automatically proxied to the host header</li>
+</ul>
+
+<a id="response_action" class="anchor" href="#response_action">&nbsp;</a>
 
 <p>A <strong>response action</strong> can be:</p>
 
@@ -151,7 +170,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
     {% include_subpage _includes/response_action_code_examples.html %}
 </div>
 
-<a name="forward_action" class="anchor" href="#forward_action">&nbsp;</a>
+<a id="forward_action" class="anchor" href="#forward_action">&nbsp;</a>
 
 <p>A <strong>forward action</strong> can be:</p>
 
@@ -165,7 +184,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         </ul>
     </li>
     <li>
-        <p>or an <a href="#button_forward_overridden">overridden request</a>, with a <strong><a href="#button_forward_overridden_with_delay">delay</a></strong>, that allows any element of requests to be overridden before they are forwarded</p>
+        <p>or an <a href="#button_forward_overridden">overridden request</a> (or overridden response), with a <strong><a href="#button_forward_overridden_with_delay">delay</a></strong>, that allows any part of a request to be overridden before it is forwarded and allows any part of it's response to be overridden</p>
     </li>
     <li>
         <p>or a templated forwarder using <strong><a href="#button_javascript_templated_forward">javascript</a></strong> or <strong><a href="#button_javascript_velocity_templated_forward">velocity</a></strong>, with a <strong><a href="#button_javascript_templated_forward_with_delay">delay</a></strong>, that allows requests to be modified or completely re-written before they are forwarded</p>
@@ -174,7 +193,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         <p>or a <strong>callback</strong> used to dynamically generate the request to forward based on the request received by MockServer:</p>
         <ul>
             <li>
-                <p>as a <strong>server side callback</strong> implemented as a <a href="#button_forward_class_callback">java class</a> that has a default constructor, implements <span class="annotation">org.mockserver.mock.action.ExpectationForwardCallback</span> and is available on the classpath</p>
+                <p>as a <strong>server side callback</strong> implemented as a <a href="#button_forward_class_callback">java class</a> that has a default constructor, implements <span class="annotation">org.mockserver.mock.action.ExpectationForwardCallback</span> or <span class="annotation">org.mockserver.mock.action.ExpectationForwardAndResponseCallback</span> and is available on the classpath</p>
             </li>
             <li>
                 <p>as a <strong>client side callback</strong> implemented as a <a href="#button_forward_method_or_closure_callback">closure</a> using the java or javascript clients</p>
@@ -188,7 +207,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
     {% include_subpage _includes/forward_action_code_examples.html %}
 </div>
 
-<a name="error_action" class="anchor" href="#error_action">&nbsp;</a>
+<a id="error_action" class="anchor" href="#error_action">&nbsp;</a>
 
 <p>An <strong>error action</strong> can return an invalid response as a <a href="#button_random_bytes_error">sequence of bytes</a> or <a href="#button_drop_connection_error">drop the connection</a></p>
 

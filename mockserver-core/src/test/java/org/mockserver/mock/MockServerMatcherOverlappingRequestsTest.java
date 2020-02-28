@@ -3,7 +3,7 @@ package org.mockserver.mock;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockserver.callback.WebSocketClientRegistry;
+import org.mockserver.closurecallback.websocketregistry.WebSocketClientRegistry;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.matchers.TimeToLive;
 import org.mockserver.matchers.Times;
@@ -24,10 +24,7 @@ public class MockServerMatcherOverlappingRequestsTest {
 
     private HttpResponse[] httpResponse;
 
-    private MockServerLogger mockLogFormatter;
-
-    private static Scheduler scheduler = new Scheduler();
-    private WebSocketClientRegistry webSocketClientRegistry;
+    private static final Scheduler scheduler = new Scheduler(new MockServerLogger());
 
     @Before
     public void prepareTestFixture() {
@@ -35,8 +32,8 @@ public class MockServerMatcherOverlappingRequestsTest {
                 new HttpResponse(),
                 new HttpResponse()
         };
-        mockLogFormatter = mock(MockServerLogger.class);
-        webSocketClientRegistry = mock(WebSocketClientRegistry.class);
+        MockServerLogger mockLogFormatter = mock(MockServerLogger.class);
+        WebSocketClientRegistry webSocketClientRegistry = mock(WebSocketClientRegistry.class);
         mockServerMatcher = new MockServerMatcher(mockLogFormatter, scheduler, webSocketClientRegistry);
     }
 

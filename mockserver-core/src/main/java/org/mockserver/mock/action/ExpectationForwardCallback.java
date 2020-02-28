@@ -1,7 +1,6 @@
 package org.mockserver.mock.action;
 
 import org.mockserver.model.HttpRequest;
-import org.mockserver.model.HttpResponse;
 
 /**
  * @author jamesdbloom
@@ -16,6 +15,6 @@ public interface ExpectationForwardCallback extends ExpectationCallback<HttpRequ
      * @param httpRequest the request that satisfied the expectation condition
      * @return the request that will be proxied
      */
-    HttpRequest handle(HttpRequest httpRequest);
+    HttpRequest handle(HttpRequest httpRequest) throws Exception;
 
 }

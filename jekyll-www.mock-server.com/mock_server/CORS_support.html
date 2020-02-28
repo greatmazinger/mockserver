@@ -1,13 +1,13 @@
 ---
 title: CORS Support
 layout: page
-pageOrder: 11
-section: 'Mock Server'
+pageOrder: 7
+section: 'General'
 subsection: true
 sitemap:
   priority: 0.7
   changefreq: 'monthly'
-  lastmod: 2018-11-16T16:00:00+01:00
+  lastmod: 2019-11-10T08:00:00+01:00
 ---
 
 <p>MockServer and the proxy has support for CORS.  By default CORS support is enabled for the REST API and disabled for all other requests (such as when expectations are matched).</p>
@@ -18,8 +18,13 @@ sitemap:
 Access-Control-Allow-Methods: "CONNECT, DELETE, GET, HEAD, OPTIONS, POST, PUT, PATCH, TRACE"
 Access-Control-Allow-Headers: "Allow, Content-Encoding, Content-Length, Content-Type, ETag, Expires, Last-Modified, Location, Server, Vary"
 Access-Control-Expose-Headers: "Allow, Content-Encoding, Content-Length, Content-Type, ETag, Expires, Last-Modified, Location, Server, Vary"
-Access-Control-Max-Age: "300"
-X-CORS: "MockServer CORS support enabled by default, to disable ConfigurationProperties.enableCORSForAPI(false) or -Dmockserver.enableCORSForAPI=false"</code></pre>
+Access-Control-Max-Age: "300"</code></pre>
+
+{% include_subpage _includes/cors_configuration.html %}
+
+<a id="cors_examples" class="anchor" href="#cors_examples">&nbsp;</a>
+
+<h2>Examples:</h2>
 
 <p>CORS support can be enabled for all enabled for all requests-responses by enabling the <strong>enableCORSForAllResponses</strong> property.</p>
 
@@ -31,7 +36,7 @@ X-CORS: "MockServer CORS support enabled by default, to disable ConfigurationPro
     </div>
     <button class="accordion inner">Command Line</button>
     <div class="panel">
-        <pre class="prettyprint lang-bash code"><code class="code">java -Dmockserver.enableCORSForAllResponses=true -jar "~/Downloads/mockserver-netty-5.6.1-jar-with-dependencies.jar" -serverPort 1080</code></pre>
+        <pre class="prettyprint lang-bash code"><code class="code">java -Dmockserver.enableCORSForAllResponses=true -jar "~/Downloads/mockserver-netty-5.9.0-jar-with-dependencies.jar" -serverPort 1080</code></pre>
     </div>
     <button class="accordion inner">JavaScript: mockserver-node</button>
     <div class="panel">
@@ -54,7 +59,7 @@ mockserver.start_mockserver({
     </div>
     <button class="accordion inner">Command Line</button>
     <div class="panel">
-        <pre class="prettyprint lang-bash code"><code class="code">java -Dmockserver.enableCORSForAPI=false -jar "~/Downloads/mockserver-netty-5.6.1-jar-with-dependencies.jar" -serverPort 1080</code></pre>
+        <pre class="prettyprint lang-bash code"><code class="code">java -Dmockserver.enableCORSForAPI=false -jar "~/Downloads/mockserver-netty-5.9.0-jar-with-dependencies.jar" -serverPort 1080</code></pre>
     </div>
     <button class="accordion inner">JavaScript: mockserver-node</button>
     <div class="panel">

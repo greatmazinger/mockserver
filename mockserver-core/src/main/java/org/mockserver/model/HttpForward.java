@@ -2,8 +2,6 @@ package org.mockserver.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
-import java.util.concurrent.TimeUnit;
-
 /**
  * @author jamesdbloom
  */
@@ -14,7 +12,7 @@ public class HttpForward extends Action<HttpForward> {
     private Scheme scheme = Scheme.HTTP;
 
     /**
-     * Static builder to create a callback.
+     * Static builder to create a forward.
      */
     public static HttpForward forward() {
         return new HttpForward();

@@ -1,14 +1,17 @@
 package org.mockserver.mock.action;
 
-import com.google.common.util.concurrent.SettableFuture;
 import org.mockserver.client.NettyHttpClient;
 import org.mockserver.filters.HopByHopHeaderFilter;
+import org.mockserver.log.model.LogEntry;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.HttpRequest;
 import org.mockserver.model.HttpResponse;
+import org.slf4j.event.Level;
 
 import javax.annotation.Nullable;
 import java.net.InetSocketAddress;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
 import static org.mockserver.model.HttpResponse.notFoundResponse;
 
@@ -26,18 +29,25 @@ public abstract class HttpForwardAction {
         this.httpClient = httpClient;
     }
 
-    protected HttpForwardActionResult sendRequest(HttpRequest httpRequest, @Nullable InetSocketAddress remoteAddress) {
+    protected HttpForwardActionResult sendRequest(HttpRequest request, @Nullable InetSocketAddress remoteAddress, Function<HttpResponse, HttpResponse> overrideHttpResponse) {
         try {
-            return new HttpForwardActionResult(httpRequest, httpClient.sendRequest(hopByHopHeaderFilter.onRequest(httpRequest), remoteAddress));
+            return new HttpForwardActionResult(request, httpClient.sendRequest(hopByHopHeaderFilter.onRequest(request), remoteAddress), overrideHttpResponse, remoteAddress);
         } catch (Exception e) {
-            mockServerLogger.error(httpRequest, e, "Exception forwarding request " + httpRequest);
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(LogEntry.LogMessageType.EXCEPTION)
+                    .setLogLevel(Level.ERROR)
+                    .setHttpRequest(request)
+                    .setMessageFormat("exception forwarding request " + request)
+                    .setThrowable(e)
+            );
         }
-        return notFoundFuture(httpRequest);
+        return notFoundFuture(request);
     }
 
     HttpForwardActionResult notFoundFuture(HttpRequest httpRequest) {
-        SettableFuture<HttpResponse> notFoundFuture = SettableFuture.create();
-        notFoundFuture.set(notFoundResponse());
-        return new HttpForwardActionResult(httpRequest, notFoundFuture);
+        CompletableFuture<HttpResponse> notFoundFuture = new CompletableFuture<>();
+        notFoundFuture.complete(notFoundResponse());
+        return new HttpForwardActionResult(httpRequest, notFoundFuture, null);
     }
 }

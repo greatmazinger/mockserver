@@ -6,6 +6,7 @@ import org.mockserver.model.HttpRequest;
 /**
  * @author jamesdbloom
  */
+@SuppressWarnings("rawtypes")
 public interface ExpectationCallback<T extends HttpObject> {
 
     /**
@@ -16,5 +17,6 @@ public interface ExpectationCallback<T extends HttpObject> {
      * @param httpRequest the request that satisfied the expectation condition
      * @return the request that will be proxied or the response that will be returned
      */
-    T handle(HttpRequest httpRequest);
+    T handle(HttpRequest httpRequest) throws Exception;
+
 }

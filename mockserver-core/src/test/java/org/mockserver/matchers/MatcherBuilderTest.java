@@ -1,18 +1,14 @@
 package org.mockserver.matchers;
 
-import com.google.common.net.MediaType;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.FullHttpRequest;
-import io.netty.util.CharsetUtil;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockserver.logging.MockServerLogger;
+import org.mockserver.mappers.FullHttpRequestToMockServerRequest;
 import org.mockserver.model.*;
-import org.mockserver.codec.MockServerRequestDecoder;
+import org.mockserver.codec.NettyToMockServerRequestDecoder;
 
-import java.nio.charset.Charset;
-
-import static com.google.common.net.MediaType.PLAIN_TEXT_UTF_8;
 import static io.netty.buffer.Unpooled.wrappedBuffer;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
 import static io.netty.handler.codec.http.HttpMethod.GET;
@@ -22,31 +18,32 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
-import static org.mockserver.mappers.ContentTypeMapper.DEFAULT_HTTP_CHARACTER_SET;
+import static org.mockserver.model.MediaType.DEFAULT_HTTP_CHARACTER_SET;
+import static org.mockserver.model.MediaType.PLAIN_TEXT_UTF_8;
 
 /**
  * @author jamesdbloom
  */
 public class MatcherBuilderTest {
 
-    private HttpRequest httpRequest = new HttpRequest()
-            .withMethod("GET")
-            .withPath("some_path")
-            .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
-            .withBody(new StringBody("some_body"))
-            .withHeaders(new Header("name", "value"))
-            .withCookies(new Cookie("name", "value"));
-    private MockServerLogger mockLogFormatter;
+    private final HttpRequest httpRequest = new HttpRequest()
+        .withMethod("GET")
+        .withPath("some_path")
+        .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
+        .withBody(new StringBody("some_body"))
+        .withHeaders(new Header("name", "value"))
+        .withCookies(new Cookie("name", "value"));
+    private MockServerLogger mockServerLogger;
 
     @Before
     public void setupTestFixture() {
-        mockLogFormatter = mock(MockServerLogger.class);
+        mockServerLogger = mock(MockServerLogger.class);
     }
 
     @Test
     public void shouldCreateMatcherThatMatchesAllFields() {
         // when
-        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockLogFormatter).transformsToMatcher(httpRequest);
+        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockServerLogger).transformsToMatcher(httpRequest);
 
         // then
         assertTrue(httpRequestMapper.matches(null, httpRequest));
@@ -57,7 +54,7 @@ public class MatcherBuilderTest {
         String bodyTestString = "UTF_8 characters: Bj\u00F6rk";
 
         // given
-        MockServerRequestDecoder mockServerRequestDecoder = new MockServerRequestDecoder(new MockServerLogger(), false);
+        FullHttpRequestToMockServerRequest fullHttpRequestToMockServerRequest = new FullHttpRequestToMockServerRequest(mockServerLogger, false);
         FullHttpRequest fullHttpRequest = new DefaultFullHttpRequest(
             HTTP_1_1,
             GET,
@@ -66,7 +63,7 @@ public class MatcherBuilderTest {
         fullHttpRequest.headers().add(CONTENT_TYPE, PLAIN_TEXT_UTF_8.withCharset(DEFAULT_HTTP_CHARACTER_SET).toString());
 
         // when
-        HttpRequest httpRequest = mockServerRequestDecoder.decode(fullHttpRequest);
+        HttpRequest httpRequest = fullHttpRequestToMockServerRequest.mapFullHttpRequestToMockServerRequest(fullHttpRequest);
 
         // and
         HttpRequestMatcher httpRequestMapper = new MatcherBuilder(new MockServerLogger()).transformsToMatcher(
@@ -86,7 +83,7 @@ public class MatcherBuilderTest {
         String bodyTestString = "UTF_8 characters: Bj\u00F6rk";
 
         // given
-        MockServerRequestDecoder mockServerRequestDecoder = new MockServerRequestDecoder(new MockServerLogger(), false);
+        FullHttpRequestToMockServerRequest fullHttpRequestToMockServerRequest = new FullHttpRequestToMockServerRequest(mockServerLogger, false);
         FullHttpRequest fullHttpRequest = new DefaultFullHttpRequest(
             HTTP_1_1,
             GET,
@@ -95,7 +92,7 @@ public class MatcherBuilderTest {
         );
 
         // when
-        HttpRequest httpRequest = mockServerRequestDecoder.decode(fullHttpRequest);
+        HttpRequest httpRequest = fullHttpRequestToMockServerRequest.mapFullHttpRequestToMockServerRequest(fullHttpRequest);
 
         // and
         HttpRequestMatcher httpRequestMapper = new MatcherBuilder(new MockServerLogger()).transformsToMatcher(
@@ -113,14 +110,14 @@ public class MatcherBuilderTest {
     @Test
     public void shouldCreateMatcherThatIgnoresMethod() {
         // when
-        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockLogFormatter).transformsToMatcher(
-                new HttpRequest()
-                        .withMethod("")
-                        .withPath("some_path")
-                        .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
-                        .withBody(new StringBody("some_body"))
-                        .withHeaders(new Header("name", "value"))
-                        .withCookies(new Cookie("name", "value"))
+        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockServerLogger).transformsToMatcher(
+            new HttpRequest()
+                .withMethod("")
+                .withPath("some_path")
+                .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
+                .withBody(new StringBody("some_body"))
+                .withHeaders(new Header("name", "value"))
+                .withCookies(new Cookie("name", "value"))
         );
 
         // then
@@ -130,14 +127,14 @@ public class MatcherBuilderTest {
     @Test
     public void shouldCreateMatcherThatIgnoresPath() {
         // when
-        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockLogFormatter).transformsToMatcher(
-                new HttpRequest()
-                        .withMethod("GET")
-                        .withPath("")
-                        .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
-                        .withBody(new StringBody("some_body"))
-                        .withHeaders(new Header("name", "value"))
-                        .withCookies(new Cookie("name", "value"))
+        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockServerLogger).transformsToMatcher(
+            new HttpRequest()
+                .withMethod("GET")
+                .withPath("")
+                .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
+                .withBody(new StringBody("some_body"))
+                .withHeaders(new Header("name", "value"))
+                .withCookies(new Cookie("name", "value"))
         );
 
         // then
@@ -147,14 +144,14 @@ public class MatcherBuilderTest {
     @Test
     public void shouldCreateMatcherThatIgnoresQueryString() {
         // when
-        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockLogFormatter).transformsToMatcher(
-                new HttpRequest()
-                        .withMethod("GET")
-                        .withPath("some_path")
-                        .withQueryStringParameters()
-                        .withBody(new StringBody("some_body"))
-                        .withHeaders(new Header("name", "value"))
-                        .withCookies(new Cookie("name", "value"))
+        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockServerLogger).transformsToMatcher(
+            new HttpRequest()
+                .withMethod("GET")
+                .withPath("some_path")
+                .withQueryStringParameters()
+                .withBody(new StringBody("some_body"))
+                .withHeaders(new Header("name", "value"))
+                .withCookies(new Cookie("name", "value"))
         );
 
         // then
@@ -164,14 +161,14 @@ public class MatcherBuilderTest {
     @Test
     public void shouldCreateMatcherThatIgnoresBodyParameters() {
         // when
-        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockLogFormatter).transformsToMatcher(
-                new HttpRequest()
-                        .withMethod("GET")
-                        .withPath("some_path")
-                        .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
-                        .withBody(new ParameterBody())
-                        .withHeaders(new Header("name", "value"))
-                        .withCookies(new Cookie("name", "value"))
+        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockServerLogger).transformsToMatcher(
+            new HttpRequest()
+                .withMethod("GET")
+                .withPath("some_path")
+                .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
+                .withBody(new ParameterBody())
+                .withHeaders(new Header("name", "value"))
+                .withCookies(new Cookie("name", "value"))
         );
 
         // then
@@ -181,14 +178,14 @@ public class MatcherBuilderTest {
     @Test
     public void shouldCreateMatcherThatIgnoresBody() {
         // when
-        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockLogFormatter).transformsToMatcher(
-                new HttpRequest()
-                        .withMethod("GET")
-                        .withPath("some_path")
-                        .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
-                        .withBody(new StringBody(""))
-                        .withHeaders(new Header("name", "value"))
-                        .withCookies(new Cookie("name", "value"))
+        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockServerLogger).transformsToMatcher(
+            new HttpRequest()
+                .withMethod("GET")
+                .withPath("some_path")
+                .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
+                .withBody(new StringBody(""))
+                .withHeaders(new Header("name", "value"))
+                .withCookies(new Cookie("name", "value"))
         );
 
         // then
@@ -198,14 +195,14 @@ public class MatcherBuilderTest {
     @Test
     public void shouldCreateMatcherThatIgnoresHeaders() {
         // when
-        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockLogFormatter).transformsToMatcher(
-                new HttpRequest()
-                        .withMethod("GET")
-                        .withPath("some_path")
-                        .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
-                        .withBody(new StringBody("some_body"))
-                        .withHeaders()
-                        .withCookies(new Cookie("name", "value"))
+        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockServerLogger).transformsToMatcher(
+            new HttpRequest()
+                .withMethod("GET")
+                .withPath("some_path")
+                .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
+                .withBody(new StringBody("some_body"))
+                .withHeaders()
+                .withCookies(new Cookie("name", "value"))
         );
 
         // then
@@ -215,14 +212,14 @@ public class MatcherBuilderTest {
     @Test
     public void shouldCreateMatcherThatIgnoresCookies() {
         // when
-        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockLogFormatter).transformsToMatcher(
-                new HttpRequest()
-                        .withMethod("GET")
-                        .withPath("some_path")
-                        .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
-                        .withBody(new StringBody("some_body"))
-                        .withHeaders(new Header("name", "value"))
-                        .withCookies()
+        HttpRequestMatcher httpRequestMapper = new MatcherBuilder(mockServerLogger).transformsToMatcher(
+            new HttpRequest()
+                .withMethod("GET")
+                .withPath("some_path")
+                .withQueryStringParameter(new Parameter("queryStringParameterName", "queryStringParameterValue"))
+                .withBody(new StringBody("some_body"))
+                .withHeaders(new Header("name", "value"))
+                .withCookies()
         );
 
         // then

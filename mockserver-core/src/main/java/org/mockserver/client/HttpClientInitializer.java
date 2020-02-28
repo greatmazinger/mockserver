@@ -10,51 +10,65 @@ import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.proxy.HttpProxyHandler;
 import io.netty.handler.proxy.Socks5ProxyHandler;
 import org.mockserver.codec.MockServerClientCodec;
-import org.mockserver.proxy.ProxyConfiguration;
 import org.mockserver.logging.LoggingHandler;
 import org.mockserver.logging.MockServerLogger;
+import org.mockserver.proxyconfiguration.ProxyConfiguration;
+import org.mockserver.socket.tls.NettySslContextFactory;
 
 import java.net.InetSocketAddress;
 
 import static org.mockserver.client.NettyHttpClient.REMOTE_SOCKET;
 import static org.mockserver.client.NettyHttpClient.SECURE;
-import static org.mockserver.socket.tls.NettySslContextFactory.nettySslContextFactory;
 import static org.slf4j.event.Level.TRACE;
 
 @ChannelHandler.Sharable
 public class HttpClientInitializer extends ChannelInitializer<SocketChannel> {
 
     private final MockServerLogger mockServerLogger;
-    private final HttpClientConnectionHandler httpClientConnectionHandler = new HttpClientConnectionHandler();
+    private final boolean forwardProxyClient;
+    private final HttpClientConnectionHandler httpClientConnectionHandler;
     private final HttpClientHandler httpClientHandler;
     private final ProxyConfiguration proxyConfiguration;
+    private final NettySslContextFactory nettySslContextFactory;
 
-    public HttpClientInitializer(ProxyConfiguration proxyConfiguration, MockServerLogger mockServerLogger) {
+    HttpClientInitializer(ProxyConfiguration proxyConfiguration, MockServerLogger mockServerLogger, boolean forwardProxyClient, NettySslContextFactory nettySslContextFactory) {
         this.proxyConfiguration = proxyConfiguration;
         this.mockServerLogger = mockServerLogger;
+        this.forwardProxyClient = forwardProxyClient;
         this.httpClientHandler = new HttpClientHandler();
+        this.httpClientConnectionHandler = new HttpClientConnectionHandler();
+        this.nettySslContextFactory = nettySslContextFactory;
     }
 
     @Override
     public void initChannel(SocketChannel channel) {
         ChannelPipeline pipeline = channel.pipeline();
+        boolean secure = channel.attr(SECURE) != null && channel.attr(SECURE).get() != null && channel.attr(SECURE).get();
 
         if (proxyConfiguration != null) {
-            if (proxyConfiguration.getType() == ProxyConfiguration.Type.HTTPS) {
-                pipeline.addLast(new HttpProxyHandler(proxyConfiguration.getProxyAddress()));
+            if (proxyConfiguration.getType() == ProxyConfiguration.Type.HTTPS && secure) {
+                if (proxyConfiguration.getUsername() != null && proxyConfiguration.getPassword() != null) {
+                    pipeline.addLast(new HttpProxyHandler(proxyConfiguration.getProxyAddress(), proxyConfiguration.getUsername(), proxyConfiguration.getPassword()));
+                } else {
+                    pipeline.addLast(new HttpProxyHandler(proxyConfiguration.getProxyAddress()));
+                }
             } else if (proxyConfiguration.getType() == ProxyConfiguration.Type.SOCKS5) {
-                pipeline.addLast(new Socks5ProxyHandler(proxyConfiguration.getProxyAddress()));
+                if (proxyConfiguration.getUsername() != null && proxyConfiguration.getPassword() != null) {
+                    pipeline.addLast(new Socks5ProxyHandler(proxyConfiguration.getProxyAddress(), proxyConfiguration.getUsername(), proxyConfiguration.getPassword()));
+                } else {
+                    pipeline.addLast(new Socks5ProxyHandler(proxyConfiguration.getProxyAddress()));
+                }
             }
         }
         pipeline.addLast(httpClientConnectionHandler);
 
-        if (channel.attr(SECURE) != null && channel.attr(SECURE).get() != null && channel.attr(SECURE).get()) {
+        if (secure) {
             InetSocketAddress remoteAddress = channel.attr(REMOTE_SOCKET).get();
-            pipeline.addLast(nettySslContextFactory().createClientSslContext().newHandler(channel.alloc(), remoteAddress.getHostName(), remoteAddress.getPort()));
+            pipeline.addLast(nettySslContextFactory.createClientSslContext(forwardProxyClient).newHandler(channel.alloc(), remoteAddress.getHostName(), remoteAddress.getPort()));
         }
 
         // add logging
-        if (mockServerLogger.isEnabled(TRACE)) {
+        if (MockServerLogger.isEnabled(TRACE)) {
             pipeline.addLast(new LoggingHandler("NettyHttpClient -->"));
         }
 
@@ -64,7 +78,7 @@ public class HttpClientInitializer extends ChannelInitializer<SocketChannel> {
 
         pipeline.addLast(new HttpObjectAggregator(Integer.MAX_VALUE));
 
-        pipeline.addLast(new MockServerClientCodec());
+        pipeline.addLast(new MockServerClientCodec(mockServerLogger));
 
         pipeline.addLast(httpClientHandler);
     }

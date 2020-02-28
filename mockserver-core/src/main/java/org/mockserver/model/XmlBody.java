@@ -1,10 +1,8 @@
 package org.mockserver.model;
 
-import com.google.common.net.MediaType;
-
 import java.nio.charset.Charset;
 
-import static org.mockserver.mappers.ContentTypeMapper.DEFAULT_HTTP_CHARACTER_SET;
+import static org.mockserver.model.MediaType.DEFAULT_HTTP_CHARACTER_SET;
 
 /**
  * @author jamesdbloom
@@ -13,24 +11,28 @@ public class XmlBody extends BodyWithContentType<String> {
 
     public static final MediaType DEFAULT_CONTENT_TYPE = MediaType.create("application", "xml");
     private final String xml;
-    private final byte[] rawBinaryData;
+    private final byte[] rawBytes;
 
     public XmlBody(String xml) {
         this(xml, DEFAULT_CONTENT_TYPE);
     }
 
     public XmlBody(String xml, Charset charset) {
-        this(xml, (charset != null ? MediaType.create("application", "xml").withCharset(charset) : null));
+        this(xml, null, (charset != null ? DEFAULT_CONTENT_TYPE.withCharset(charset) : null));
     }
 
     public XmlBody(String xml, MediaType contentType) {
+        this(xml, null, contentType);
+    }
+
+    public XmlBody(String xml, byte[] rawBytes, MediaType contentType) {
         super(Type.XML, contentType);
         this.xml = xml;
 
-        if (xml != null) {
-            this.rawBinaryData = xml.getBytes(determineCharacterSet(contentType, DEFAULT_HTTP_CHARACTER_SET));
+        if (rawBytes == null && xml != null) {
+            this.rawBytes = xml.getBytes(determineCharacterSet(contentType, DEFAULT_HTTP_CHARACTER_SET));
         } else {
-            this.rawBinaryData = new byte[0];
+            this.rawBytes = rawBytes;
         }
     }
 
@@ -51,7 +53,7 @@ public class XmlBody extends BodyWithContentType<String> {
     }
 
     public byte[] getRawBytes() {
-        return rawBinaryData;
+        return rawBytes;
     }
 
     @Override

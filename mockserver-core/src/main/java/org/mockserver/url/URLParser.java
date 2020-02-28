@@ -1,6 +1,6 @@
 package org.mockserver.url;
 
-import org.apache.commons.lang3.StringUtils;
+import static org.apache.commons.lang3.StringUtils.substringBefore;
 
 /**
  * @author jamesdbloom
@@ -15,12 +15,12 @@ public class URLParser {
     }
 
     public static String returnPath(String path) {
-        String result = "";
+        String result;
         if (URLParser.isFullUrl(path)) {
             result = path.replaceAll(schemeHostAndPortRegex, "");
         } else {
             result = path;
         }
-        return StringUtils.substringBefore(result, "?");
+        return substringBefore(result, "?");
     }
 }

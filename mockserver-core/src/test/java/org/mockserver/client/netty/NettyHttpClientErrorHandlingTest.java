@@ -8,7 +8,10 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.mockserver.client.NettyHttpClient;
 import org.mockserver.echo.http.EchoServer;
+import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.HttpResponse;
+import org.mockserver.model.MediaType;
+import org.mockserver.scheduler.Scheduler;
 import org.mockserver.socket.PortFactory;
 
 import java.net.InetSocketAddress;
@@ -16,8 +19,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.*;
-import static io.netty.handler.codec.http.HttpHeaderValues.*;
 import static io.netty.handler.codec.http.HttpHeaderValues.KEEP_ALIVE;
+import static io.netty.handler.codec.http.HttpHeaderValues.*;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -32,8 +35,9 @@ import static org.mockserver.stop.Stop.stopQuietly;
 public class NettyHttpClientErrorHandlingTest {
 
     @Rule
-    public ExpectedException exception = ExpectedException.none();
-    private static EventLoopGroup clientEventLoopGroup = new NioEventLoopGroup();
+    public final ExpectedException exception = ExpectedException.none();
+    private static final EventLoopGroup clientEventLoopGroup = new NioEventLoopGroup(3, new Scheduler.SchedulerThreadFactory(NettyHttpClientErrorHandlingTest.class.getSimpleName() + "-eventLoop"));
+    private final MockServerLogger mockServerLogger = new MockServerLogger();
 
     @AfterClass
     public static void stopEventLoopGroup() {
@@ -52,7 +56,7 @@ public class NettyHttpClientErrorHandlingTest {
         ));
 
         // when
-        new NettyHttpClient(clientEventLoopGroup, null).sendRequest(request().withHeader(HOST.toString(), "127.0.0.1:" + freePort))
+        new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false).sendRequest(request().withHeader(HOST.toString(), "127.0.0.1:" + freePort))
             .get(10, TimeUnit.SECONDS);
     }
 
@@ -65,12 +69,13 @@ public class NettyHttpClientErrorHandlingTest {
             // then
             exception.expect(ExecutionException.class);
             exception.expectMessage(anyOf(
-                containsString("Exception caught before valid response has been received"),
-                containsString("Channel set as inactive before valid response has been received")
+                containsString("Connection reset by peer"),
+                containsString("Channel set as inactive before valid response has been received"),
+                containsString("Channel handler removed before valid response has been received")
             ));
 
             // when
-            new NettyHttpClient(clientEventLoopGroup, null).sendRequest(request().withSecure(true).withHeader(HOST.toString(), "127.0.0.1:" + echoServer.getPort()))
+            new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false).sendRequest(request().withSecure(true).withHeader(HOST.toString(), "127.0.0.1:" + echoServer.getPort()))
                 .get(10, TimeUnit.SECONDS);
         } finally {
             stopQuietly(echoServer);
@@ -85,7 +90,14 @@ public class NettyHttpClientErrorHandlingTest {
         try {
             // when
             InetSocketAddress socket = new InetSocketAddress("127.0.0.1", echoServer.getPort());
-            HttpResponse httpResponse = new NettyHttpClient(clientEventLoopGroup, null).sendRequest(request().withBody(exact("this is an example body")).withSecure(true), socket)
+            HttpResponse httpResponse = new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false)
+                .sendRequest(
+                    request()
+                        .withHeader(CONTENT_TYPE.toString(), MediaType.TEXT_PLAIN.toString())
+                        .withBody(exact("this is an example body"))
+                        .withSecure(true),
+                    socket
+                )
                 .get(10, TimeUnit.SECONDS);
 
             // then
@@ -93,10 +105,11 @@ public class NettyHttpClientErrorHandlingTest {
                 response()
                     .withStatusCode(200)
                     .withReasonPhrase("OK")
-                    .withHeader(header(CONTENT_LENGTH.toString(), "this is an example body".length() / 2))
-                    .withHeader(header(CONNECTION.toString(), KEEP_ALIVE.toString()))
+                    .withHeader(CONTENT_TYPE.toString(), "text/plain")
                     .withHeader(header(ACCEPT_ENCODING.toString(), GZIP.toString() + "," + DEFLATE.toString()))
-                    .withBody(exact("this is an "))
+                    .withHeader(header(CONNECTION.toString(), KEEP_ALIVE.toString()))
+                    .withHeader(header(CONTENT_LENGTH.toString(), "this is an example body".length() / 2))
+                    .withBody(exact("this is an ", MediaType.TEXT_PLAIN))
             ));
         } finally {
             stopQuietly(echoServer);

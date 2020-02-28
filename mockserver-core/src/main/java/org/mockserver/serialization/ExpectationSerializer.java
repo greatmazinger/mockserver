@@ -2,18 +2,22 @@ package org.mockserver.serialization;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
-import org.mockserver.serialization.model.ExpectationDTO;
+import org.mockserver.log.model.LogEntry;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.mock.Expectation;
-import org.mockserver.model.HttpRequest;
+import org.mockserver.serialization.model.ExpectationDTO;
 import org.mockserver.validator.jsonschema.JsonSchemaExpectationValidator;
+import org.mockserver.validator.jsonschema.JsonSchemaValidator;
+import org.slf4j.event.Level;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.mockserver.character.Character.NEW_LINE;
+import static org.mockserver.validator.jsonschema.JsonSchemaExpectationValidator.jsonSchemaExpectationValidator;
+import static org.mockserver.validator.jsonschema.JsonSchemaValidator.OPEN_API_SPECIFICATION_URL;
 
 /**
  * @author jamesdbloom
@@ -26,7 +30,7 @@ public class ExpectationSerializer implements Serializer<Expectation> {
 
     public ExpectationSerializer(MockServerLogger mockServerLogger) {
         this.mockServerLogger = mockServerLogger;
-        expectationValidator = new JsonSchemaExpectationValidator(mockServerLogger);
+        expectationValidator = jsonSchemaExpectationValidator(mockServerLogger);
     }
 
     public String serialize(Expectation expectation) {
@@ -35,13 +39,19 @@ public class ExpectationSerializer implements Serializer<Expectation> {
                 .writerWithDefaultPrettyPrinter()
                 .writeValueAsString(new ExpectationDTO(expectation));
         } catch (Exception e) {
-            mockServerLogger.error(String.format("Exception while serializing expectation to JSON with value %s", expectation), e);
-            throw new RuntimeException(String.format("Exception while serializing expectation to JSON with value %s", expectation), e);
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(LogEntry.LogMessageType.EXCEPTION)
+                    .setLogLevel(Level.ERROR)
+                    .setMessageFormat("exception while serializing expectation to JSON with value " + expectation)
+                    .setThrowable(e)
+            );
+            throw new RuntimeException("Exception while serializing expectation to JSON with value " + expectation, e);
         }
     }
 
     public String serialize(List<Expectation> expectations) {
-        return serialize(expectations.toArray(new Expectation[expectations.size()]));
+        return serialize(expectations.toArray(new Expectation[0]));
     }
 
     public String serialize(Expectation... expectations) {
@@ -58,14 +68,25 @@ public class ExpectationSerializer implements Serializer<Expectation> {
                 return "[]";
             }
         } catch (Exception e) {
-            mockServerLogger.error("Exception while serializing expectation to JSON with value " + Arrays.asList(expectations), e);
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(LogEntry.LogMessageType.EXCEPTION)
+                    .setLogLevel(Level.ERROR)
+                    .setMessageFormat("exception while serializing expectation to JSON with value " + Arrays.asList(expectations))
+                    .setThrowable(e)
+            );
             throw new RuntimeException("Exception while serializing expectation to JSON with value " + Arrays.asList(expectations), e);
         }
     }
 
     public Expectation deserialize(String jsonExpectation) {
-        if (Strings.isNullOrEmpty(jsonExpectation)) {
-            throw new IllegalArgumentException("1 error:" + NEW_LINE + " - an expectation is required but value was \"" + String.valueOf(jsonExpectation) + "\"");
+        if (isBlank(jsonExpectation)) {
+            throw new IllegalArgumentException(
+                "1 error:" + NEW_LINE
+                    + " - an expectation is required but value was \"" + jsonExpectation + "\"" + NEW_LINE +
+                    NEW_LINE +
+                    OPEN_API_SPECIFICATION_URL
+            );
         } else {
             String validationErrors = expectationValidator.isValid(jsonExpectation);
             if (validationErrors.isEmpty()) {
@@ -76,12 +97,26 @@ public class ExpectationSerializer implements Serializer<Expectation> {
                         expectation = expectationDTO.buildObject();
                     }
                 } catch (Exception e) {
-                    mockServerLogger.error((HttpRequest) null, e, "exception while parsing {} for Expectation", jsonExpectation);
+                    mockServerLogger.logEvent(
+                        new LogEntry()
+                            .setType(LogEntry.LogMessageType.EXCEPTION)
+                            .setLogLevel(Level.ERROR)
+                            .setMessageFormat("exception while parsing{}for Expectation")
+                            .setArguments(jsonExpectation)
+                            .setThrowable(e)
+                    );
                     throw new RuntimeException("Exception while parsing [" + jsonExpectation + "] for Expectation", e);
                 }
                 return expectation;
             } else {
-                mockServerLogger.error("validation failed:{}expectation:{}", validationErrors, jsonExpectation);
+                mockServerLogger.logEvent(
+                    new LogEntry()
+                        .setType(LogEntry.LogMessageType.EXCEPTION)
+                        .setLogLevel(Level.ERROR)
+                        .setHttpRequest(null)
+                        .setMessageFormat("validation failed:{}expectation:{}")
+                        .setArguments(validationErrors, jsonExpectation)
+                );
                 throw new IllegalArgumentException(validationErrors);
             }
         }
@@ -92,15 +127,13 @@ public class ExpectationSerializer implements Serializer<Expectation> {
         return Expectation.class;
     }
 
-    public Expectation[] deserializeArray(String jsonExpectations) {
-        List<Expectation> expectations = new ArrayList<Expectation>();
-        if (Strings.isNullOrEmpty(jsonExpectations)) {
-            throw new IllegalArgumentException("1 error:" + NEW_LINE + " - an expectation or expectation array is required but value was \"" + String.valueOf(jsonExpectations) + "\"");
+    public Expectation[] deserializeArray(String jsonExpectations, boolean allowEmpty) {
+        List<Expectation> expectations = new ArrayList<>();
+        if (isBlank(jsonExpectations)) {
+            throw new IllegalArgumentException("1 error:" + NEW_LINE + " - an expectation or expectation array is required but value was \"" + jsonExpectations + "\"");
         } else {
             List<String> jsonExpectationList = jsonArraySerializer.returnJSONObjects(jsonExpectations);
-            if (jsonExpectationList.isEmpty()) {
-                throw new IllegalArgumentException("1 error:" + NEW_LINE + " - an expectation or array of expectations is required");
-            } else {
+            if (!jsonExpectationList.isEmpty()) {
                 List<String> validationErrorsList = new ArrayList<String>();
                 for (String jsonExpecation : jsonExpectationList) {
                     try {
@@ -116,9 +149,11 @@ public class ExpectationSerializer implements Serializer<Expectation> {
                         throw new IllegalArgumentException(validationErrorsList.get(0));
                     }
                 }
+            } else if (!allowEmpty) {
+                throw new IllegalArgumentException("1 error:" + NEW_LINE + " - an expectation or array of expectations is required");
             }
         }
-        return expectations.toArray(new Expectation[expectations.size()]);
+        return expectations.toArray(new Expectation[0]);
     }
 
 }

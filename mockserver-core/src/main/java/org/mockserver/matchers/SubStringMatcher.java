@@ -1,11 +1,13 @@
 package org.mockserver.matchers;
 
-import org.apache.commons.lang3.StringUtils;
+import org.mockserver.log.model.LogEntry;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.HttpRequest;
 import org.mockserver.model.NottableString;
 
+import static org.apache.commons.lang3.StringUtils.*;
 import static org.mockserver.model.NottableString.string;
+import static org.slf4j.event.Level.DEBUG;
 
 /**
  * @author jamesdbloom
@@ -15,34 +17,25 @@ public class SubStringMatcher extends BodyMatcher<NottableString> {
     private final MockServerLogger mockServerLogger;
     private final NottableString matcher;
 
-    public SubStringMatcher(MockServerLogger mockServerLogger, String matcher) {
-        this.mockServerLogger = mockServerLogger;
-        this.matcher = string(matcher);
-    }
-
-    public SubStringMatcher(MockServerLogger mockServerLogger, NottableString matcher) {
+    SubStringMatcher(MockServerLogger mockServerLogger, NottableString matcher) {
         this.mockServerLogger = mockServerLogger;
         this.matcher = matcher;
     }
 
     public static boolean matches(String matcher, String matched, boolean ignoreCase) {
-        boolean result = false;
-
-        if (StringUtils.isEmpty(matcher)) {
-            result = true;
+        if (isEmpty(matcher)) {
+            return true;
         } else if (matched != null) {
-            if (StringUtils.contains(matched, matcher)) {
-                result = true;
+            if (contains(matched, matcher)) {
+                return true;
             }
             // case insensitive comparison is mainly to improve matching in web containers like Tomcat that convert header names to lower case
             if (ignoreCase) {
-                if (StringUtils.containsIgnoreCase(matched, matcher)) {
-                    result = true;
-                }
+                return containsIgnoreCase(matched, matcher);
             }
         }
 
-        return result;
+        return false;
     }
 
     public boolean matches(final HttpRequest context, String matched) {
@@ -57,10 +50,16 @@ public class SubStringMatcher extends BodyMatcher<NottableString> {
         }
 
         if (!result) {
-            mockServerLogger.trace(context, "Failed to match [{}] with [{}]", matched, this.matcher);
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setLogLevel(DEBUG)
+                    .setHttpRequest(context)
+                    .setMessageFormat("failed to perform substring match{}with{}")
+                    .setArguments(matched, this.matcher)
+            );
         }
 
-        return matched.isNot() != (matcher.isNot() != (not != result));
+        return matched.isNot() == (matcher.isNot() == (not != result));
     }
 
     @Override

@@ -12,21 +12,21 @@ import java.util.Optional;
 
 public class MockServerExtension implements ParameterResolver, BeforeAllCallback, AfterAllCallback {
     private static ClientAndServer perTestSuiteClient;
-    private final ClientAndServer clientAndServerFactory;
+    private final ClientAndServer clientAndServer;
     private ClientAndServer client;
     private boolean perTestSuite;
 
     public MockServerExtension() {
-        clientAndServerFactory = new ClientAndServer();
+        this.clientAndServer = new ClientAndServer();
     }
 
-    public MockServerExtension(ClientAndServer clientAndServerFactory) {
-        this.clientAndServerFactory = clientAndServerFactory;
+    public MockServerExtension(ClientAndServer clientAndServer) {
+        this.clientAndServer = clientAndServer;
     }
 
     @Override
     public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
-        return parameterContext.getParameter().getType().equals(MockServerClient.class);
+        return MockServerClient.class.isAssignableFrom(parameterContext.getParameter().getType());
     }
 
     @Override
@@ -35,7 +35,7 @@ public class MockServerExtension implements ParameterResolver, BeforeAllCallback
     }
 
     @Override
-    public void beforeAll(ExtensionContext context) throws Exception {
+    public void beforeAll(ExtensionContext context) {
         List<Integer> ports = new ArrayList<>();
         Optional<MockServerSettings> mockServerSettingsOptional = retrieveAnnotationFromTestClass(context);
         if (mockServerSettingsOptional.isPresent()) {
@@ -45,25 +45,22 @@ public class MockServerExtension implements ParameterResolver, BeforeAllCallback
                 ports.add(port);
             }
         }
-        if (ports.isEmpty()) {
-            ports.add(PortFactory.findFreePort());
-        }
         client = instantiateClient(ports);
     }
 
     private ClientAndServer instantiateClient(List<Integer> ports) {
         if (perTestSuite) {
             if (perTestSuiteClient == null) {
-                perTestSuiteClient = clientAndServerFactory.startClientAndServer(ports);
+                perTestSuiteClient = clientAndServer.startClientAndServer(ports);
                 Runtime.getRuntime().addShutdownHook(new Thread(() -> perTestSuiteClient.stop()));
             }
             return perTestSuiteClient;
         }
-        return clientAndServerFactory.startClientAndServer(ports);
+        return clientAndServer.startClientAndServer(ports);
     }
 
     @Override
-    public void afterAll(ExtensionContext extensionContext) throws Exception {
+    public void afterAll(ExtensionContext extensionContext) {
         if (!perTestSuite && client.isRunning()) {
             client.stop();
         }

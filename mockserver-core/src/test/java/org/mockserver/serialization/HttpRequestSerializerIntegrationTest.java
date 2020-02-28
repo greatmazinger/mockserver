@@ -7,14 +7,13 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.*;
-import org.mockserver.serialization.model.BodyDTO;
-import org.mockserver.serialization.model.BodyWithContentTypeDTO;
-import org.mockserver.serialization.model.HttpRequestDTO;
-import org.mockserver.serialization.model.StringBodyDTO;
+import org.mockserver.serialization.model.*;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Base64;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.mockserver.character.Character.NEW_LINE;
 import static org.mockserver.file.FileReader.openStreamToFileFromClassPathOrPath;
@@ -39,7 +38,7 @@ import static org.mockserver.model.XmlSchemaBody.xmlSchema;
 public class HttpRequestSerializerIntegrationTest {
 
     @Rule
-    public ExpectedException thrown = ExpectedException.none();
+    public final ExpectedException thrown = ExpectedException.none();
 
     @Test
     public void shouldValidateHeaderValueIsList() {
@@ -261,7 +260,12 @@ public class HttpRequestSerializerIntegrationTest {
             "    \"values\" : [ \"someHeaderValue\" ]" + NEW_LINE +
             "  } ]," + NEW_LINE +
             "  \"path\" : \"somePath\"," + NEW_LINE +
-            "  \"secure\" : true" + NEW_LINE +
+            "  \"secure\" : true," + NEW_LINE +
+            "  \"socketAddress\" : {" + NEW_LINE +
+            "    \"host\" : \"someHost\"," + NEW_LINE +
+            "    \"port\" : 1234," + NEW_LINE +
+            "    \"scheme\" : \"HTTPS\"" + NEW_LINE +
+            "  }" + NEW_LINE +
             "}";
 
         // when
@@ -283,6 +287,12 @@ public class HttpRequestSerializerIntegrationTest {
             ))
             .setSecure(true)
             .setKeepAlive(false)
+            .setSocketAddress(new SocketAddressDTO(
+                new SocketAddress()
+                    .withHost("someHost")
+                    .withPort(1234)
+                    .withScheme(SocketAddress.Scheme.HTTPS)
+            ))
             .buildObject(), httpRequest);
     }
 
@@ -603,6 +613,7 @@ public class HttpRequestSerializerIntegrationTest {
     }
 
     @Test
+    @SuppressWarnings("RedundantArrayCreation")
     public void shouldSerializeArray() {
         // when
         String jsonHttpRequest = new HttpRequestSerializer(new MockServerLogger()).serialize(
@@ -721,10 +732,13 @@ public class HttpRequestSerializerIntegrationTest {
 
     @Test
     public void shouldSerializeJsonBody() {
+        // given
+        String json = "{\"key\": \"value\"}";
+
         // when
         String jsonHttpRequest = new HttpRequestSerializer(new MockServerLogger()).serialize(
             new HttpRequestDTO()
-                .setBody(BodyDTO.createDTO(json("{ \"key\": \"value\" }")))
+                .setBody(BodyDTO.createDTO(json(json)))
                 .buildObject()
         );
 
@@ -732,7 +746,8 @@ public class HttpRequestSerializerIntegrationTest {
         assertEquals("{" + NEW_LINE +
             "  \"body\" : {" + NEW_LINE +
             "    \"type\" : \"JSON\"," + NEW_LINE +
-            "    \"json\" : \"{ \\\"key\\\": \\\"value\\\" }\"" + NEW_LINE +
+            "    \"json\" : \"" + StringEscapeUtils.escapeJava(json) + "\"," + NEW_LINE +
+            "    \"rawBytes\" : \"" + Base64.getEncoder().encodeToString(json.getBytes(UTF_8)) + "\"" + NEW_LINE +
             "  }" + NEW_LINE +
             "}", jsonHttpRequest);
     }
@@ -786,7 +801,8 @@ public class HttpRequestSerializerIntegrationTest {
         assertEquals("{" + NEW_LINE +
             "  \"body\" : {" + NEW_LINE +
             "    \"type\" : \"XML\"," + NEW_LINE +
-            "    \"xml\" : \"<some><xml></xml></some>\"" + NEW_LINE +
+            "    \"xml\" : \"<some><xml></xml></some>\"," + NEW_LINE +
+            "    \"rawBytes\" : \"" + Base64.getEncoder().encodeToString("<some><xml></xml></some>".getBytes(UTF_8)) + "\"" + NEW_LINE +
             "  }" + NEW_LINE +
             "}", jsonHttpRequest);
     }

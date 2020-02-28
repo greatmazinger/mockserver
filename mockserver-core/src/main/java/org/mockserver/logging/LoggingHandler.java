@@ -20,7 +20,7 @@ import static org.mockserver.character.Character.NEW_LINE;
 @Sharable
 public class LoggingHandler extends ChannelDuplexHandler {
 
-    private static final String NEWLINE = String.format("%n");
+    private static final String NEWLINE = "\n";
     private static final String[] BYTE2HEX = new String[256];
     private static final String[] HEXPADDING = new String[16];
     private static final String[] BYTEPADDING = new String[16];
@@ -72,12 +72,12 @@ public class LoggingHandler extends ChannelDuplexHandler {
 
     protected final Logger logger;
 
-    public LoggingHandler(String loggerName) {
+    public LoggingHandler(final String loggerName) {
         logger = LoggerFactory.getLogger(loggerName);
     }
 
-    public LoggingHandler(Logger logger) {
-        this.logger = logger;
+    public LoggingHandler(final Class loggerClass) {
+        logger = LoggerFactory.getLogger(loggerClass.getName());
     }
 
     public void addLoggingHandler(ChannelHandlerContext ctx) {
@@ -166,19 +166,19 @@ public class LoggingHandler extends ChannelDuplexHandler {
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    public void channelRead(ChannelHandlerContext ctx, Object msg) {
         logMessage(ctx, "RECEIVED", msg);
         ctx.fireChannelRead(msg);
     }
 
     @Override
-    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
         logMessage(ctx, "WRITE", msg);
         ctx.write(msg, promise);
     }
 
     @Override
-    public void flush(ChannelHandlerContext ctx) throws Exception {
+    public void flush(ChannelHandlerContext ctx) {
         logger.trace(format(ctx, "FLUSH"));
         ctx.flush();
     }
@@ -190,7 +190,7 @@ public class LoggingHandler extends ChannelDuplexHandler {
     protected String format(ChannelHandlerContext ctx, String message) {
         String chStr = ctx.channel().toString() + ' ' + message;
         if (logger.isTraceEnabled()) {
-            chStr += NEW_LINE + "channel: " + ctx.channel().id() + NEW_LINE + "pipeline: " + ctx.pipeline().names() + NEW_LINE;
+            chStr += NEW_LINE + "channel: " + ctx.channel().id() + NEW_LINE + "current: " + ctx.name() + NEW_LINE + "pipeline: " + ctx.pipeline().names() + NEW_LINE;
         }
         return chStr;
     }
@@ -261,11 +261,12 @@ public class LoggingHandler extends ChannelDuplexHandler {
         return dump.toString();
     }
 
-    private String formatNonByteBuf(String eventName, Object msg) {
-        return eventName + ": " + msg;
-    }
-
     private String formatByteBufHolder(String eventName, ByteBufHolder msg) {
         return formatByteBuf(eventName, msg.content());
+    }
+
+    private String formatNonByteBuf(String eventName, Object msg) {
+        String msgAsString = msg.toString();
+        return eventName + "(rel:" + msgAsString.length() + ")" + ": " + msgAsString;
     }
 }

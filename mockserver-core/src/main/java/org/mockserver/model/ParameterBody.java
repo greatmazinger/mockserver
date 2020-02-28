@@ -1,7 +1,5 @@
 package org.mockserver.model;
 
-import com.google.common.net.MediaType;
-
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -10,7 +8,7 @@ import java.util.List;
 /**
  * @author jamesdbloom
  */
-public class ParameterBody extends BodyWithContentType<List<Parameter>> {
+public class ParameterBody extends Body<Parameters> {
 
     public static final MediaType DEFAULT_CONTENT_TYPE = MediaType.FORM_DATA;
     private Parameters parameters = new Parameters();
@@ -24,7 +22,7 @@ public class ParameterBody extends BodyWithContentType<List<Parameter>> {
     }
 
     public ParameterBody(Parameters parameters) {
-        super(Type.PARAMETERS, DEFAULT_CONTENT_TYPE);
+        super(Type.PARAMETERS);
         if (parameters != null) {
             this.parameters = parameters;
         }

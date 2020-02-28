@@ -4,6 +4,7 @@ import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaders;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.Cookie;
 import org.mockserver.model.Header;
 import org.mockserver.model.HttpResponse;
@@ -23,19 +24,19 @@ import static org.mockserver.model.HttpResponse.response;
  */
 public class MockServerResponseEncoderCookieHeaderTest {
 
-    private MockServerResponseEncoder mockServerResponseEncoder;
+    private MockServerToNettyResponseEncoder mockServerResponseEncoder;
     private List<Object> output;
     private HttpResponse httpResponse;
 
     @Before
     public void setupFixture() {
-        mockServerResponseEncoder = new MockServerResponseEncoder();
+        mockServerResponseEncoder = new MockServerToNettyResponseEncoder(new MockServerLogger());
         output = new ArrayList<Object>();
         httpResponse = response();
     }
 
     @Test
-    public void shouldOnlyMapACookieIfThereIsNoSetCookieHeader() throws UnsupportedEncodingException {
+    public void shouldOnlyMapACookieIfThereIsNoSetCookieHeader() {
         // given
         // - an HttpResponse
         String cookieOne = "cookieName1=\"\"; Expires=Thu, 01-Jan-1970 00:00:10 GMT; Path=/";

@@ -1,53 +1,40 @@
 package org.mockserver.model;
 
-import com.google.common.net.MediaType;
-
 import java.nio.charset.Charset;
 
-import static org.mockserver.mappers.ContentTypeMapper.DEFAULT_HTTP_CHARACTER_SET;
+import static org.mockserver.model.MediaType.DEFAULT_HTTP_CHARACTER_SET;
 
 /**
  * @author jamesdbloom
  */
 public class StringBody extends BodyWithContentType<String> {
 
-    private final String value;
-    private final byte[] rawBinaryData;
+    public static final MediaType DEFAULT_CONTENT_TYPE = MediaType.create("text", "plain");
     private final boolean subString;
+    private final String value;
+    private final byte[] rawBytes;
 
     public StringBody(String value) {
-        this(value, false);
+        this(value, null, false, null);
     }
 
     public StringBody(String value, Charset charset) {
-        this(value, false, charset);
+        this(value, null, false, (charset != null ? DEFAULT_CONTENT_TYPE.withCharset(charset) : null));
     }
 
     public StringBody(String value, MediaType contentType) {
-        this(value, false, contentType);
+        this(value, null, false, contentType);
     }
 
-    public StringBody(String value, boolean subString) {
-        this(value, subString, (MediaType) null);
-    }
-
-    public StringBody(String value, boolean subString, Charset charset) {
-        this(value, subString, (charset != null ? MediaType.create("text", "plain").withCharset(charset) : null));
-    }
-
-    public StringBody(String value, boolean subString, MediaType contentType) {
-        this(value, null, subString, contentType);
-    }
-
-    public StringBody(String value, byte[] rawBinaryData, boolean subString, MediaType contentType) {
+    public StringBody(String value, byte[] rawBytes, boolean subString, MediaType contentType) {
         super(Type.STRING, contentType);
         this.value = value;
         this.subString = subString;
 
-        if (rawBinaryData == null && value != null) {
-            this.rawBinaryData = value.getBytes(determineCharacterSet(contentType, DEFAULT_HTTP_CHARACTER_SET));
+        if (rawBytes == null && value != null) {
+            this.rawBytes = value.getBytes(determineCharacterSet(contentType, DEFAULT_HTTP_CHARACTER_SET));
         } else {
-            this.rawBinaryData = rawBinaryData;
+            this.rawBytes = rawBytes;
         }
     }
 
@@ -64,15 +51,15 @@ public class StringBody extends BodyWithContentType<String> {
     }
 
     public static StringBody subString(String body) {
-        return new StringBody(body, true);
+        return new StringBody(body, null, true, null);
     }
 
     public static StringBody subString(String body, Charset charset) {
-        return new StringBody(body, true, charset);
+        return new StringBody(body, null, true, (charset != null ? DEFAULT_CONTENT_TYPE.withCharset(charset) : null));
     }
 
     public static StringBody subString(String body, MediaType contentType) {
-        return new StringBody(body, true, contentType);
+        return new StringBody(body, null, true, contentType);
     }
 
     public String getValue() {
@@ -80,7 +67,7 @@ public class StringBody extends BodyWithContentType<String> {
     }
 
     public byte[] getRawBytes() {
-        return rawBinaryData;
+        return rawBytes;
     }
 
     public boolean isSubString() {

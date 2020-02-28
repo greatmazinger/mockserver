@@ -3,7 +3,6 @@ package org.mockserver.matchers;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.mockserver.model.ObjectWithReflectiveEqualsHashCodeToString;
 
-import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -11,23 +10,28 @@ import java.util.concurrent.TimeUnit;
  */
 public class TimeToLive extends ObjectWithReflectiveEqualsHashCodeToString {
 
-    private static final String[] excludedFields = {"endDate"};
+    private static final String[] EXCLUDED_FIELDS = {"endDate"};
+    private static final TimeToLive TIME_TO_LIVE_UNLIMITED = new TimeToLive(null, null, true) {
+        public boolean stillAlive() {
+            return true;
+        }
+    };
     private final TimeUnit timeUnit;
     private final Long timeToLive;
     private final boolean unlimited;
-    private Date endDate;
+    private long endDate;
 
     private TimeToLive(TimeUnit timeUnit, Long timeToLive, boolean unlimited) {
         this.timeUnit = timeUnit;
         this.timeToLive = timeToLive;
         this.unlimited = unlimited;
         if (!unlimited) {
-            endDate = new Date(System.currentTimeMillis() + timeUnit.toMillis(timeToLive));
+            endDate = System.currentTimeMillis() + timeUnit.toMillis(timeToLive);
         }
     }
 
     public static TimeToLive unlimited() {
-        return new TimeToLive(null, null, true);
+        return TIME_TO_LIVE_UNLIMITED;
     }
 
     public static TimeToLive exactly(TimeUnit timeUnit, Long timeToLive) {
@@ -42,25 +46,31 @@ public class TimeToLive extends ObjectWithReflectiveEqualsHashCodeToString {
         return timeToLive;
     }
 
+    @JsonIgnore
+    public long getEndDate() {
+        return endDate;
+    }
+
+    public TimeToLive setEndDate(long endDate) {
+        this.endDate = endDate;
+        return this;
+    }
+
     public boolean isUnlimited() {
         return unlimited;
     }
 
     public boolean stillAlive() {
-        if (unlimited || isAfterNow(endDate)) {
-            return true;
-        } else {
-            return false;
-        }
+        return unlimited || isAfterNow(endDate);
     }
 
-    private boolean isAfterNow(Date date) {
-        return date.getTime() > System.currentTimeMillis();
+    private boolean isAfterNow(long date) {
+        return date > System.currentTimeMillis();
     }
 
     @Override
     @JsonIgnore
     protected String[] fieldsExcludedFromEqualsAndHashCode() {
-        return excludedFields;
+        return EXCLUDED_FIELDS;
     }
 }

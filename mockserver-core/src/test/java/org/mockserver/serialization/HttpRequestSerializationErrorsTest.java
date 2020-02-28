@@ -14,8 +14,9 @@ import org.mockserver.model.HttpRequest;
 
 import java.io.IOException;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.*;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
@@ -28,7 +29,7 @@ import static org.mockserver.character.Character.NEW_LINE;
 public class HttpRequestSerializationErrorsTest {
 
     @Rule
-    public ExpectedException thrown = ExpectedException.none();
+    public final ExpectedException thrown = ExpectedException.none();
     @Mock
     private ObjectMapper objectMapper;
     @Mock
@@ -71,6 +72,7 @@ public class HttpRequestSerializationErrorsTest {
     }
 
     @Test
+    @SuppressWarnings("RedundantArrayCreation")
     public void shouldHandleNullAndEmptyWhileSerializingArray() {
         // when
         assertEquals("[]", httpRequestSerializer.serialize(new HttpRequest[]{}));
@@ -79,23 +81,28 @@ public class HttpRequestSerializationErrorsTest {
 
     @Test
     public void shouldHandleExceptionWhileDeserializingObject() {
-        // given
-        thrown.expect(IllegalArgumentException.class);
-        thrown.expectMessage("JsonParseException - Unrecognized token 'requestBytes': was expecting ('true', 'false' or 'null')");
-
-        // when
-        httpRequestSerializer.deserialize("requestBytes");
+        try {
+            // when
+            httpRequestSerializer.deserialize("requestBytes");
+            fail("expected exception to be thrown");
+        } catch (IllegalArgumentException iae) {
+            // then
+            assertThat(iae.getMessage(), is("JsonParseException - Unrecognized token 'requestBytes': was expecting (JSON String, Number (or 'NaN'/'INF'/'+INF'), Array, Object or token 'null', 'true' or 'false')\n" +
+                " at [Source: (String)\"requestBytes\"; line: 1, column: 13]"));
+        }
     }
 
     @Test
     public void shouldHandleExceptionWhileDeserializingArray() {
-        // given
-        thrown.expect(IllegalArgumentException.class);
-        thrown.expectMessage("com.fasterxml.jackson.core.JsonParseException: Unrecognized token 'requestBytes': was expecting ('true', 'false' or 'null')\n" +
-                " at [Source: (String)\"requestBytes\"; line: 1, column: 25]");
-
         // when
-        httpRequestSerializer.deserializeArray("requestBytes");
+        try {
+            httpRequestSerializer.deserializeArray("requestBytes");
+            fail("expected exception");
+        } catch (IllegalArgumentException iae) {
+            // then
+            assertThat(iae.getMessage(), is("com.fasterxml.jackson.core.JsonParseException: Unrecognized token 'requestBytes': was expecting (JSON String, Number (or 'NaN'/'INF'/'+INF'), Array, Object or token 'null', 'true' or 'false')\n" +
+                " at [Source: (String)\"requestBytes\"; line: 1, column: 13]"));
+        }
     }
 
     @Test

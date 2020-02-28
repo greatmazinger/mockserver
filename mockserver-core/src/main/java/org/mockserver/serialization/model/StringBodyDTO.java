@@ -1,6 +1,5 @@
 package org.mockserver.serialization.model;
 
-import com.google.common.net.MediaType;
 import org.mockserver.model.StringBody;
 
 /**
@@ -8,8 +7,9 @@ import org.mockserver.model.StringBody;
  */
 public class StringBodyDTO extends BodyWithContentTypeDTO {
 
-    private String string;
-    private boolean subString;
+    private final String string;
+    private final boolean subString;
+    private final byte[] rawBytes;
 
     public StringBodyDTO(StringBody stringBody) {
         this(stringBody, stringBody.getNot());
@@ -19,6 +19,7 @@ public class StringBodyDTO extends BodyWithContentTypeDTO {
         super(stringBody.getType(), not, stringBody.getContentType());
         string = stringBody.getValue();
         subString = stringBody.isSubString();
+        rawBytes = stringBody.getRawBytes();
     }
 
     public String getString() {
@@ -29,7 +30,11 @@ public class StringBodyDTO extends BodyWithContentTypeDTO {
         return subString;
     }
 
+    public byte[] getRawBytes() {
+        return rawBytes;
+    }
+
     public StringBody buildObject() {
-        return new StringBody(string, subString, getMediaType());
+        return new StringBody(getString(), getRawBytes(), isSubString(), getMediaType());
     }
 }

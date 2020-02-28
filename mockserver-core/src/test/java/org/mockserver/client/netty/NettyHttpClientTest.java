@@ -9,17 +9,22 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.mockserver.client.NettyHttpClient;
 import org.mockserver.echo.http.EchoServer;
+import org.mockserver.logging.MockServerLogger;
 import org.mockserver.model.HttpResponse;
+import org.mockserver.model.MediaType;
+import org.mockserver.scheduler.Scheduler;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.*;
-import static io.netty.handler.codec.http.HttpHeaderValues.*;
 import static io.netty.handler.codec.http.HttpHeaderValues.KEEP_ALIVE;
+import static io.netty.handler.codec.http.HttpHeaderValues.*;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
+import static org.mockserver.model.BinaryBody.binary;
 import static org.mockserver.model.Cookie.cookie;
 import static org.mockserver.model.Header.header;
 import static org.mockserver.model.HttpRequest.request;
@@ -32,7 +37,8 @@ public class NettyHttpClientTest {
     private static EchoServer echoServer;
     @Rule
     public ExpectedException exception = ExpectedException.none();
-    private static EventLoopGroup clientEventLoopGroup = new NioEventLoopGroup();
+    private static final EventLoopGroup clientEventLoopGroup = new NioEventLoopGroup(3, new Scheduler.SchedulerThreadFactory(NettyHttpClientTest.class.getSimpleName() + "-eventLoop"));
+    private final MockServerLogger mockServerLogger = new MockServerLogger();
 
     @BeforeClass
     public static void startEchoServer() {
@@ -52,7 +58,7 @@ public class NettyHttpClientTest {
     @Test
     public void shouldSendBasicRequest() throws Exception {
         // given
-        NettyHttpClient nettyHttpClient = new NettyHttpClient(clientEventLoopGroup, null);
+        NettyHttpClient nettyHttpClient = new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false);
 
         // when
         HttpResponse httpResponse = nettyHttpClient.sendRequest(request().withHeader("Host", "0.0.0.0:" + echoServer.getPort()))
@@ -73,7 +79,7 @@ public class NettyHttpClientTest {
     @Test
     public void shouldSendBasicRequestToAnotherIpAndPort() throws Exception {
         // given
-        NettyHttpClient nettyHttpClient = new NettyHttpClient(clientEventLoopGroup, null);
+        NettyHttpClient nettyHttpClient = new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false);
 
         // when
         HttpResponse httpResponse = nettyHttpClient.sendRequest(request().withHeader("Host", "www.google.com"), new InetSocketAddress("0.0.0.0", echoServer.getPort()))
@@ -94,7 +100,7 @@ public class NettyHttpClientTest {
     @Test
     public void shouldSendBasicRequestToAnotherIpAndPortWithNoHostHeader() throws Exception {
         // given
-        NettyHttpClient nettyHttpClient = new NettyHttpClient(clientEventLoopGroup, null);
+        NettyHttpClient nettyHttpClient = new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false);
 
         // when
         HttpResponse httpResponse = nettyHttpClient.sendRequest(request(), new InetSocketAddress("0.0.0.0", echoServer.getPort()))
@@ -112,9 +118,45 @@ public class NettyHttpClientTest {
     }
 
     @Test
-    public void shouldSendComplexRequest() throws Exception {
+    public void shouldSendComplexRequestWithStringBody() throws Exception {
         // given
-        NettyHttpClient nettyHttpClient = new NettyHttpClient(clientEventLoopGroup, null);
+        NettyHttpClient nettyHttpClient = new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false);
+
+        // when
+        HttpResponse httpResponse = nettyHttpClient.sendRequest(
+            request()
+                .withHeader("Host", "0.0.0.0:" + echoServer.getPort())
+                .withHeader(header("some_header_name", "some_header_value"))
+                .withHeader(header("another_header_name", "first_header_value", "second_header_value"))
+                .withHeader(CONTENT_TYPE.toString(), MediaType.PLAIN_TEXT_UTF_8.toString())
+                .withCookie(cookie("some_cookie_name", "some_cookie_value"))
+                .withCookie(cookie("another_cookie_name", "another_cookie_value"))
+                .withBody(exact("this is an example body"))
+        ).get(10, TimeUnit.HOURS);
+
+        // then
+        assertThat(httpResponse, is(
+            response()
+                .withStatusCode(200)
+                .withReasonPhrase("OK")
+                .withContentType(MediaType.PLAIN_TEXT_UTF_8)
+                .withHeader(header(HOST.toString(), "0.0.0.0:" + echoServer.getPort()))
+                .withHeader(header(CONTENT_LENGTH.toString(), "this is an example body".length()))
+                .withHeader(header(ACCEPT_ENCODING.toString(), GZIP.toString() + "," + DEFLATE.toString()))
+                .withHeader(header(CONNECTION.toString(), KEEP_ALIVE.toString()))
+                .withHeader(header(COOKIE.toString(), "some_cookie_name=some_cookie_value; another_cookie_name=another_cookie_value"))
+                .withHeader(header("some_header_name", "some_header_value"))
+                .withHeader(header("another_header_name", "first_header_value", "second_header_value"))
+                .withCookie(cookie("some_cookie_name", "some_cookie_value"))
+                .withCookie(cookie("another_cookie_name", "another_cookie_value"))
+                .withBody(exact("this is an example body", MediaType.PLAIN_TEXT_UTF_8))
+        ));
+    }
+
+    @Test
+    public void shouldSendComplexRequestWithStringBodyAndNotContentType() throws Exception {
+        // given
+        NettyHttpClient nettyHttpClient = new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false);
 
         // when
         HttpResponse httpResponse = nettyHttpClient.sendRequest(
@@ -125,7 +167,7 @@ public class NettyHttpClientTest {
                 .withCookie(cookie("some_cookie_name", "some_cookie_value"))
                 .withCookie(cookie("another_cookie_name", "another_cookie_value"))
                 .withBody(exact("this is an example body"))
-        ).get(10, TimeUnit.SECONDS);
+        ).get(10, TimeUnit.HOURS);
 
         // then
         assertThat(httpResponse, is(
@@ -142,6 +184,42 @@ public class NettyHttpClientTest {
                 .withCookie(cookie("some_cookie_name", "some_cookie_value"))
                 .withCookie(cookie("another_cookie_name", "another_cookie_value"))
                 .withBody(exact("this is an example body"))
+        ));
+    }
+
+    @Test
+    public void shouldSendComplexRequestWithBinaryBody() throws Exception {
+        // given
+        NettyHttpClient nettyHttpClient = new NettyHttpClient(mockServerLogger, clientEventLoopGroup, null, false);
+
+        // when
+        HttpResponse httpResponse = nettyHttpClient.sendRequest(
+            request()
+                .withContentType(MediaType.ANY_VIDEO_TYPE)
+                .withHeader("Host", "0.0.0.0:" + echoServer.getPort())
+                .withHeader(header("some_header_name", "some_header_value"))
+                .withHeader(header("another_header_name", "first_header_value", "second_header_value"))
+                .withCookie(cookie("some_cookie_name", "some_cookie_value"))
+                .withCookie(cookie("another_cookie_name", "another_cookie_value"))
+                .withBody(binary("this is an example body".getBytes(UTF_8)))
+        ).get(10, TimeUnit.HOURS);
+
+        // then
+        assertThat(httpResponse, is(
+            response()
+                .withStatusCode(200)
+                .withReasonPhrase("OK")
+                .withContentType(MediaType.ANY_VIDEO_TYPE)
+                .withHeader(header(HOST.toString(), "0.0.0.0:" + echoServer.getPort()))
+                .withHeader(header(CONTENT_LENGTH.toString(), "this is an example body".length()))
+                .withHeader(header(ACCEPT_ENCODING.toString(), GZIP.toString() + "," + DEFLATE.toString()))
+                .withHeader(header(CONNECTION.toString(), KEEP_ALIVE.toString()))
+                .withHeader(header(COOKIE.toString(), "some_cookie_name=some_cookie_value; another_cookie_name=another_cookie_value"))
+                .withHeader(header("some_header_name", "some_header_value"))
+                .withHeader(header("another_header_name", "first_header_value", "second_header_value"))
+                .withCookie(cookie("some_cookie_name", "some_cookie_value"))
+                .withCookie(cookie("another_cookie_name", "another_cookie_value"))
+                .withBody(binary("this is an example body".getBytes(UTF_8), MediaType.ANY_VIDEO_TYPE))
         ));
     }
 

@@ -1,6 +1,5 @@
 package org.mockserver.serialization.model;
 
-import com.google.common.net.MediaType;
 import org.mockserver.model.Body;
 import org.mockserver.model.XmlBody;
 
@@ -9,7 +8,8 @@ import org.mockserver.model.XmlBody;
  */
 public class XmlBodyDTO extends BodyWithContentTypeDTO {
 
-    private String xml;
+    private final String xml;
+    private final byte[] rawBytes;
 
     public XmlBodyDTO(XmlBody xmlBody) {
         this(xmlBody, false);
@@ -17,14 +17,19 @@ public class XmlBodyDTO extends BodyWithContentTypeDTO {
 
     public XmlBodyDTO(XmlBody xmlBody, Boolean not) {
         super(Body.Type.XML, not, xmlBody.getContentType());
-        this.xml = xmlBody.getValue();
+        xml = xmlBody.getValue();
+        rawBytes = xmlBody.getRawBytes();
     }
 
     public String getXml() {
         return xml;
     }
 
+    public byte[] getRawBytes() {
+        return rawBytes;
+    }
+
     public XmlBody buildObject() {
-        return new XmlBody(getXml(), getMediaType());
+        return new XmlBody(getXml(), getRawBytes(), getMediaType());
     }
 }

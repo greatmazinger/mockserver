@@ -3,40 +3,43 @@ package org.mockserver.mock.action;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.EventLoopGroup;
 import io.netty.util.AttributeKey;
-import org.apache.commons.lang3.StringUtils;
 import org.mockserver.client.NettyHttpClient;
 import org.mockserver.client.SocketCommunicationException;
-import org.mockserver.client.SocketConnectionException;
-import org.mockserver.proxy.ProxyConfiguration;
 import org.mockserver.configuration.ConfigurationProperties;
 import org.mockserver.filters.HopByHopHeaderFilter;
-import org.mockserver.log.model.ExpectationMatchLogEntry;
-import org.mockserver.log.model.RequestLogEntry;
-import org.mockserver.log.model.RequestResponseLogEntry;
+import org.mockserver.log.model.LogEntry;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.mock.Expectation;
 import org.mockserver.mock.HttpStateHandler;
 import org.mockserver.model.*;
+import org.mockserver.proxyconfiguration.ProxyConfiguration;
 import org.mockserver.responsewriter.ResponseWriter;
 import org.mockserver.scheduler.Scheduler;
 import org.mockserver.serialization.curl.HttpRequestToCurlSerializer;
+import org.mockserver.socket.tls.NettySslContextFactory;
+import org.slf4j.event.Level;
 
-import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.util.Set;
+import java.util.function.BiConsumer;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.HOST;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.apache.commons.lang3.StringUtils.isEmpty;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.mockserver.character.Character.NEW_LINE;
-import static org.mockserver.configuration.ConfigurationProperties.enableCORSForAPI;
-import static org.mockserver.configuration.ConfigurationProperties.enableCORSForAllResponses;
+import static org.mockserver.configuration.ConfigurationProperties.*;
 import static org.mockserver.cors.CORSHeaders.isPreflightRequest;
-import static org.mockserver.log.model.MessageLogEntry.LogMessageType.*;
+import static org.mockserver.exception.ExceptionHandling.*;
+import static org.mockserver.log.model.LogEntry.LogMessageType.*;
 import static org.mockserver.model.HttpResponse.notFoundResponse;
+import static org.slf4j.event.Level.TRACE;
 
 /**
  * @author jamesdbloom
  */
+@SuppressWarnings("rawtypes")
 public class ActionHandler {
 
     public static final AttributeKey<InetSocketAddress> REMOTE_SOCKET = AttributeKey.valueOf("REMOTE_SOCKET");
@@ -58,209 +61,443 @@ public class ActionHandler {
     // forwarding
     private NettyHttpClient httpClient;
     private HopByHopHeaderFilter hopByHopHeaderFilter = new HopByHopHeaderFilter();
-    private HttpRequestToCurlSerializer httpRequestToCurlSerializer = new HttpRequestToCurlSerializer();
+    private HttpRequestToCurlSerializer httpRequestToCurlSerializer;
 
-    public ActionHandler(EventLoopGroup eventLoopGroup, HttpStateHandler httpStateHandler, ProxyConfiguration proxyConfiguration) {
+    public ActionHandler(EventLoopGroup eventLoopGroup, HttpStateHandler httpStateHandler, ProxyConfiguration proxyConfiguration, NettySslContextFactory nettySslContextFactory) {
         this.httpStateHandler = httpStateHandler;
         this.scheduler = httpStateHandler.getScheduler();
         this.mockServerLogger = httpStateHandler.getMockServerLogger();
-        this.httpClient = new NettyHttpClient(eventLoopGroup, proxyConfiguration);
-        this.httpResponseActionHandler = new HttpResponseActionHandler();
-        this.httpResponseTemplateActionHandler = new HttpResponseTemplateActionHandler(mockServerLogger);
-        this.httpResponseClassCallbackActionHandler = new HttpResponseClassCallbackActionHandler(mockServerLogger);
-        this.httpResponseObjectCallbackActionHandler = new HttpResponseObjectCallbackActionHandler(httpStateHandler);
-        this.httpForwardActionHandler = new HttpForwardActionHandler(mockServerLogger, httpClient);
-        this.httpForwardTemplateActionHandler = new HttpForwardTemplateActionHandler(mockServerLogger, httpClient);
-        this.httpForwardClassCallbackActionHandler = new HttpForwardClassCallbackActionHandler(mockServerLogger, httpClient);
-        this.httpForwardObjectCallbackActionHandler = new HttpForwardObjectCallbackActionHandler(httpStateHandler, httpClient);
-        this.httpOverrideForwardedRequestCallbackActionHandler = new HttpOverrideForwardedRequestActionHandler(mockServerLogger, httpClient);
-        this.httpErrorActionHandler = new HttpErrorActionHandler();
+        this.httpRequestToCurlSerializer = new HttpRequestToCurlSerializer(mockServerLogger);
+        this.httpClient = new NettyHttpClient(mockServerLogger, eventLoopGroup, proxyConfiguration, true, nettySslContextFactory);
     }
 
     public void processAction(final HttpRequest request, final ResponseWriter responseWriter, final ChannelHandlerContext ctx, Set<String> localAddresses, boolean proxyingRequest, final boolean synchronous) {
+        if (request.getHeaders() == null || !request.getHeaders().containsEntry(httpStateHandler.getUniqueLoopPreventionHeaderName(), httpStateHandler.getUniqueLoopPreventionHeaderValue())) {
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(RECEIVED_REQUEST)
+                    .setLogLevel(Level.INFO)
+                    .setHttpRequest(request)
+                    .setMessageFormat("received request:{}")
+                    .setArguments(request)
+            );
+        }
         final Expectation expectation = httpStateHandler.firstMatchingExpectation(request);
-        final boolean potentiallyHttpProxy = !StringUtils.isEmpty(request.getFirstHeader(HOST.toString())) && !localAddresses.contains(request.getFirstHeader(HOST.toString()));
+        Runnable expectationPostProcessor = () -> httpStateHandler.postProcess(expectation);
+        final boolean potentiallyHttpProxy = !isEmpty(request.getFirstHeader(HOST.toString())) && !localAddresses.contains(request.getFirstHeader(HOST.toString()));
 
         if (expectation != null && expectation.getAction() != null) {
 
             final Action action = expectation.getAction();
-            httpStateHandler.log(new ExpectationMatchLogEntry(request, expectation));
             switch (action.getType()) {
                 case RESPONSE: {
-                    scheduler.submit(new Runnable() {
-                        public void run() {
-                            final HttpResponse response = httpResponseActionHandler.handle((HttpResponse) action);
-                            writeResponseActionResponse(response, responseWriter, request, action, synchronous);
-                        }
-                    }, synchronous);
+                    scheduler.schedule(() -> handleAnyException(request, responseWriter, synchronous, action, () -> {
+                        final HttpResponse response = getHttpResponseActionHandler().handle((HttpResponse) action);
+                        writeResponseActionResponse(response, responseWriter, request, action, synchronous);
+                        expectationPostProcessor.run();
+                    }), synchronous);
                     break;
                 }
                 case RESPONSE_TEMPLATE: {
-                    scheduler.submit(new Runnable() {
-                        public void run() {
-                            final HttpResponse response = httpResponseTemplateActionHandler.handle((HttpTemplate) action, request);
-                            writeResponseActionResponse(response, responseWriter, request, action, synchronous);
-                        }
-                    }, synchronous);
+                    scheduler.schedule(() -> handleAnyException(request, responseWriter, synchronous, action, () -> {
+                        final HttpResponse response = getHttpResponseTemplateActionHandler().handle((HttpTemplate) action, request);
+                        writeResponseActionResponse(response, responseWriter, request, action, synchronous);
+                        expectationPostProcessor.run();
+                    }), synchronous, action.getDelay());
                     break;
                 }
                 case RESPONSE_CLASS_CALLBACK: {
-                    scheduler.submit(new Runnable() {
-                        public void run() {
-                            final HttpResponse response = httpResponseClassCallbackActionHandler.handle((HttpClassCallback) action, request);
-                            writeResponseActionResponse(response, responseWriter, request, action, synchronous);
-                        }
-                    }, synchronous);
+                    scheduler.schedule(() -> handleAnyException(request, responseWriter, synchronous, action, () -> {
+                        final HttpResponse response = getHttpResponseClassCallbackActionHandler().handle((HttpClassCallback) action, request);
+                        writeResponseActionResponse(response, responseWriter, request, action, synchronous);
+                        expectationPostProcessor.run();
+                    }), synchronous, action.getDelay());
                     break;
                 }
                 case RESPONSE_OBJECT_CALLBACK: {
-                    scheduler.submit(new Runnable() {
-                        public void run() {
-                            httpResponseObjectCallbackActionHandler.handle(ActionHandler.this, (HttpObjectCallback) action, request, responseWriter, synchronous);
-                        }
-                    }, synchronous);
+                    scheduler.schedule(() ->
+                            getHttpResponseObjectCallbackActionHandler().handle(ActionHandler.this, (HttpObjectCallback) action, request, responseWriter, synchronous, expectationPostProcessor),
+                        synchronous, action.getDelay());
                     break;
                 }
                 case FORWARD: {
-                    scheduler.schedule(new Runnable() {
-                        public void run() {
-                            final HttpForwardActionResult responseFuture = httpForwardActionHandler.handle((HttpForward) action, request);
-                            writeForwardActionResponse(responseFuture, responseWriter, request, action, synchronous);
-                        }
-                    }, synchronous, action.getDelay());
+                    scheduler.schedule(() -> handleAnyException(request, responseWriter, synchronous, action, () -> {
+                        final HttpForwardActionResult responseFuture = getHttpForwardActionHandler().handle((HttpForward) action, request);
+                        writeForwardActionResponse(responseFuture, responseWriter, request, action, synchronous);
+                        expectationPostProcessor.run();
+                    }), synchronous, action.getDelay());
                     break;
                 }
                 case FORWARD_TEMPLATE: {
-                    scheduler.schedule(new Runnable() {
-                        public void run() {
-                            final HttpForwardActionResult responseFuture = httpForwardTemplateActionHandler.handle((HttpTemplate) action, request);
-                            writeForwardActionResponse(responseFuture, responseWriter, request, action, synchronous);
-                        }
-                    }, synchronous, action.getDelay());
+                    scheduler.schedule(() -> handleAnyException(request, responseWriter, synchronous, action, () -> {
+                        final HttpForwardActionResult responseFuture = getHttpForwardTemplateActionHandler().handle((HttpTemplate) action, request);
+                        writeForwardActionResponse(responseFuture, responseWriter, request, action, synchronous);
+                        expectationPostProcessor.run();
+                    }), synchronous, action.getDelay());
                     break;
                 }
                 case FORWARD_CLASS_CALLBACK: {
-                    scheduler.schedule(new Runnable() {
-                        public void run() {
-                            final HttpForwardActionResult responseFuture = httpForwardClassCallbackActionHandler.handle((HttpClassCallback) action, request);
-                            writeForwardActionResponse(responseFuture, responseWriter, request, action, synchronous);
-                        }
-                    }, synchronous, action.getDelay());
+                    scheduler.schedule(() -> handleAnyException(request, responseWriter, synchronous, action, () -> {
+                        final HttpForwardActionResult responseFuture = getHttpForwardClassCallbackActionHandler().handle((HttpClassCallback) action, request);
+                        writeForwardActionResponse(responseFuture, responseWriter, request, action, synchronous);
+                        expectationPostProcessor.run();
+                    }), synchronous, action.getDelay());
                     break;
                 }
                 case FORWARD_OBJECT_CALLBACK: {
-                    scheduler.schedule(new Runnable() {
-                        public void run() {
-                            httpForwardObjectCallbackActionHandler.handle(ActionHandler.this, (HttpObjectCallback) action, request, responseWriter, synchronous);
-                        }
-                    }, synchronous, action.getDelay());
+                    scheduler.schedule(() ->
+                            getHttpForwardObjectCallbackActionHandler().handle(ActionHandler.this, (HttpObjectCallback) action, request, responseWriter, synchronous, expectationPostProcessor),
+                        synchronous, action.getDelay());
                     break;
                 }
                 case FORWARD_REPLACE: {
-                    scheduler.schedule(new Runnable() {
-                        public void run() {
-                            final HttpForwardActionResult responseFuture = httpOverrideForwardedRequestCallbackActionHandler.handle((HttpOverrideForwardedRequest) action, request);
-                            writeForwardActionResponse(responseFuture, responseWriter, request, action, synchronous);
-                        }
-                    }, synchronous, action.getDelay());
+                    scheduler.schedule(() -> handleAnyException(request, responseWriter, synchronous, action, () -> {
+                        final HttpForwardActionResult responseFuture = getHttpOverrideForwardedRequestCallbackActionHandler().handle((HttpOverrideForwardedRequest) action, request);
+                        writeForwardActionResponse(responseFuture, responseWriter, request, action, synchronous);
+                        expectationPostProcessor.run();
+                    }), synchronous, action.getDelay());
                     break;
                 }
                 case ERROR: {
-                    scheduler.schedule(new Runnable() {
-                        public void run() {
-                            httpErrorActionHandler.handle((HttpError) action, ctx);
-                            mockServerLogger.info(EXPECTATION_RESPONSE, request, "returning error:{}for request:{}for action:{}", action, request, action);
-                        }
-                    }, synchronous, action.getDelay());
+                    scheduler.schedule(() -> handleAnyException(request, responseWriter, synchronous, action, () -> {
+                        getHttpErrorActionHandler().handle((HttpError) action, ctx);
+                        mockServerLogger.logEvent(
+                            new LogEntry()
+                                .setType(EXPECTATION_RESPONSE)
+                                .setLogLevel(Level.INFO)
+                                .setHttpRequest(request)
+                                .setHttpError((HttpError) action)
+                                .setMessageFormat("returning error:{}for request:{}for action:{}")
+                                .setArguments(action, request, action)
+                        );
+                        expectationPostProcessor.run();
+                    }), synchronous, action.getDelay());
                     break;
                 }
             }
 
-        } else if ((enableCORSForAPI() || enableCORSForAllResponses()) && isPreflightRequest(request)) {
+        } else if (isPreflightRequest(request) && (enableCORSForAPI() || enableCORSForAllResponses())) {
 
             responseWriter.writeResponse(request, OK);
-
-        } else if (potentiallyHttpProxy && request.getHeaders().containsEntry("x-forwarded-by", "MockServer")) {
-
-            mockServerLogger.trace("Received \"x-forwarded-by\" header caused by exploratory HTTP proxy - falling back to no proxy: {}", request);
-            returnNotFound(responseWriter, request);
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(INFO)
+                    .setLogLevel(Level.INFO)
+                    .setMessageFormat("returning CORS response for OPTIONS request")
+            );
 
         } else if (proxyingRequest || potentiallyHttpProxy) {
 
-            final InetSocketAddress remoteAddress = ctx != null ? ctx.channel().attr(REMOTE_SOCKET).get() : null;
-            final HttpRequest clonedRequest = hopByHopHeaderFilter.onRequest(request);
-            if (potentiallyHttpProxy) {
-                clonedRequest.withHeader("x-forwarded-by", "MockServer");
-            }
-            final HttpForwardActionResult responseFuture = new HttpForwardActionResult(clonedRequest, httpClient.sendRequest(clonedRequest, remoteAddress, potentiallyHttpProxy ? 1000 : ConfigurationProperties.socketConnectionTimeout()));
-            scheduler.submit(responseFuture, new Runnable() {
-                public void run() {
+            if (request.getHeaders() != null && request.getHeaders().containsEntry(httpStateHandler.getUniqueLoopPreventionHeaderName(), httpStateHandler.getUniqueLoopPreventionHeaderValue())) {
+
+                mockServerLogger.logEvent(
+                    new LogEntry()
+                        .setLogLevel(TRACE)
+                        .setMessageFormat("received \"x-forwarded-by\" header caused by exploratory HTTP proxy or proxy loop - falling back to no proxy:{}")
+                        .setArguments(request)
+                );
+                returnNotFound(responseWriter, request, null);
+
+            } else {
+
+                final InetSocketAddress remoteAddress = ctx != null ? ctx.channel().attr(REMOTE_SOCKET).get() : null;
+                final HttpRequest clonedRequest = hopByHopHeaderFilter.onRequest(request).withHeader(httpStateHandler.getUniqueLoopPreventionHeaderName(), httpStateHandler.getUniqueLoopPreventionHeaderValue());
+                final HttpForwardActionResult responseFuture = new HttpForwardActionResult(clonedRequest, httpClient.sendRequest(clonedRequest, remoteAddress, potentiallyHttpProxy ? 1000 : ConfigurationProperties.socketConnectionTimeout()), null, remoteAddress);
+                scheduler.submit(responseFuture, () -> {
                     try {
-                        HttpResponse response = responseFuture.getHttpResponse().get();
+                        HttpResponse response = responseFuture.getHttpResponse().get(maxFutureTimeout(), MILLISECONDS);
                         if (response == null) {
                             response = notFoundResponse();
                         }
-                        if (response.containsHeader("x-forwarded-by", "MockServer")) {
-                            httpStateHandler.log(new RequestLogEntry(request));
-                            mockServerLogger.info(EXPECTATION_NOT_MATCHED, request, "no expectation for:{}returning response:{}", request, notFoundResponse());
+                        if (response.containsHeader(httpStateHandler.getUniqueLoopPreventionHeaderName(), httpStateHandler.getUniqueLoopPreventionHeaderValue())) {
+                            response.removeHeader(httpStateHandler.getUniqueLoopPreventionHeaderName());
+                            mockServerLogger.logEvent(
+                                new LogEntry()
+                                    .setType(EXPECTATION_NOT_MATCHED_RESPONSE)
+                                    .setLogLevel(Level.INFO)
+                                    .setHttpRequest(request)
+                                    .setHttpResponse(notFoundResponse())
+                                    .setMessageFormat("no expectation for:{}returning response:{}")
+                                    .setArguments(request, notFoundResponse())
+                            );
                         } else {
-                            httpStateHandler.log(new RequestResponseLogEntry(request, response));
-                            mockServerLogger.info(FORWARDED_REQUEST, request, "returning response:{}for forwarded request" + NEW_LINE + NEW_LINE + " in json:{}" + NEW_LINE + NEW_LINE + " in curl:{}", response, request, httpRequestToCurlSerializer.toCurl(request, remoteAddress));
+                            mockServerLogger.logEvent(
+                                new LogEntry()
+                                    .setType(FORWARDED_REQUEST)
+                                    .setLogLevel(Level.INFO)
+                                    .setHttpRequest(request)
+                                    .setHttpResponse(response)
+                                    .setExpectation(request, response)
+                                    .setMessageFormat("returning response:{}for forwarded request" + NEW_LINE + NEW_LINE + " in json:{}" + NEW_LINE + NEW_LINE + " in curl:{}")
+                                    .setArguments(response, request, httpRequestToCurlSerializer.toCurl(request, remoteAddress))
+                            );
                         }
                         responseWriter.writeResponse(request, response, false);
                     } catch (SocketCommunicationException sce) {
-                        returnNotFound(responseWriter, request);
-                    } catch (Exception ex) {
-                        if (potentiallyHttpProxy && (ex.getCause() instanceof ConnectException || ex.getCause() instanceof SocketConnectionException)) {
-                            mockServerLogger.trace("Failed to connect to proxied socket due to exploratory HTTP proxy for: {}falling back to no proxy: {}", request, ex.getCause());
-                            returnNotFound(responseWriter, request);
+                        returnNotFound(responseWriter, request, sce.getMessage());
+                    } catch (Throwable throwable) {
+                        if (potentiallyHttpProxy && connectionException(throwable)) {
+                            mockServerLogger.logEvent(
+                                new LogEntry()
+                                    .setLogLevel(TRACE)
+                                    .setMessageFormat("failed to connect to proxied socket due to exploratory HTTP proxy for:{}due to:{}falling back to no proxy")
+                                    .setArguments(request, throwable.getCause())
+                            );
+                            returnNotFound(responseWriter, request, null);
+                        } else if (sslHandshakeException(throwable)) {
+                            mockServerLogger.logEvent(
+                                new LogEntry()
+                                    .setType(LogEntry.LogMessageType.EXCEPTION)
+                                    .setLogLevel(Level.ERROR)
+                                    .setHttpRequest(request)
+                                    .setMessageFormat("TLS handshake exception while proxying request{}to remote address{}with channel" + (ctx != null ? String.valueOf(ctx.channel()) : ""))
+                                    .setArguments(request, remoteAddress)
+                                    .setThrowable(throwable)
+                            );
+                            returnNotFound(responseWriter, request, "TLS handshake exception while proxying request to remote address" + remoteAddress);
+                        } else if (!connectionClosedException(throwable)) {
+                            mockServerLogger.logEvent(
+                                new LogEntry()
+                                    .setType(EXCEPTION)
+                                    .setLogLevel(Level.ERROR)
+                                    .setHttpRequest(request)
+                                    .setMessageFormat(throwable.getMessage())
+                                    .setThrowable(throwable)
+                            );
+                            returnNotFound(responseWriter, request, "connection closed while proxying request to remote address" + remoteAddress);
                         } else {
-                            mockServerLogger.error(request, ex, ex.getMessage());
+                            returnNotFound(responseWriter, request, throwable.getMessage());
                         }
                     }
-                }
-            }, synchronous);
+                }, synchronous);
+
+            }
 
         } else {
 
-            returnNotFound(responseWriter, request);
+            returnNotFound(responseWriter, request, null);
 
+        }
+    }
+
+    private void handleAnyException(HttpRequest request, ResponseWriter responseWriter, boolean synchronous, Action action, Runnable processAction) {
+        try {
+            processAction.run();
+        } catch (Throwable throwable) {
+            writeResponseActionResponse(notFoundResponse(), responseWriter, request, action, synchronous);
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(WARN)
+                    .setLogLevel(Level.INFO)
+                    .setHttpRequest(request)
+                    .setMessageFormat(throwable.getMessage())
+                    .setThrowable(throwable)
+            );
         }
     }
 
     void writeResponseActionResponse(final HttpResponse response, final ResponseWriter responseWriter, final HttpRequest request, final Action action, boolean synchronous) {
-        scheduler.schedule(new Runnable() {
-            public void run() {
-                mockServerLogger.info(EXPECTATION_RESPONSE, request, "returning response:{}for request:{}for action:{}", response, request, action);
-                responseWriter.writeResponse(request, response, false);
-            }
-        }, synchronous, action.getDelay(), response.getDelay());
+        scheduler.schedule(() -> {
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(EXPECTATION_RESPONSE)
+                    .setLogLevel(Level.INFO)
+                    .setHttpRequest(request)
+                    .setHttpResponse(response)
+                    .setMessageFormat("returning response:{}for request:{}for action:{}")
+                    .setArguments(response, request, action)
+            );
+            responseWriter.writeResponse(request, response, false);
+        }, synchronous, response.getDelay());
+    }
+
+    void executeAfterForwardActionResponse(final HttpForwardActionResult responseFuture, final BiConsumer<HttpResponse, Throwable> command, final boolean synchronous) {
+        scheduler.submit(responseFuture, command, synchronous);
     }
 
     void writeForwardActionResponse(final HttpForwardActionResult responseFuture, final ResponseWriter responseWriter, final HttpRequest request, final Action action, boolean synchronous) {
-        scheduler.submit(responseFuture, new Runnable() {
-            public void run() {
-                try {
-                    HttpResponse response = responseFuture.getHttpResponse().get();
-                    httpStateHandler.log(new RequestResponseLogEntry(request, response));
-                    mockServerLogger.info(FORWARDED_REQUEST, request, "returning response:{}for forwarded request\n\n in json:{}\n\n in curl:{}for action:{}", response, responseFuture.getHttpRequest(), httpRequestToCurlSerializer.toCurl(responseFuture.getHttpRequest()), action);
-                    responseWriter.writeResponse(request, response, false);
-                } catch (Exception ex) {
-                    mockServerLogger.error(request, ex, ex.getMessage());
-                }
+        scheduler.submit(responseFuture, () -> {
+            try {
+                HttpResponse response = responseFuture.getHttpResponse().get(maxFutureTimeout(), MILLISECONDS);
+                responseWriter.writeResponse(request, response, false);
+                mockServerLogger.logEvent(
+                    new LogEntry()
+                        .setType(FORWARDED_REQUEST)
+                        .setLogLevel(Level.INFO)
+                        .setHttpRequest(request)
+                        .setHttpResponse(response)
+                        .setExpectation(request, response)
+                        .setMessageFormat("returning response:{}for forwarded request\n\n in json:{}\n\n in curl:{}for action:{}")
+                        .setArguments(response, responseFuture.getHttpRequest(), httpRequestToCurlSerializer.toCurl(responseFuture.getHttpRequest(), responseFuture.getRemoteAddress()), action)
+                );
+            } catch (Throwable throwable) {
+                handleExceptionDuringForwardingRequest(action, request, responseWriter, throwable);
             }
         }, synchronous);
     }
 
-    private void returnNotFound(ResponseWriter responseWriter, HttpRequest request) {
-        HttpResponse response = notFoundResponse();
-        if (request.getHeaders().containsEntry("x-forwarded-by", "MockServer")) {
-            response.withHeader("x-forwarded-by", "MockServer");
-            mockServerLogger.trace(request, "no expectation for:{}returning response:{}", request, notFoundResponse());
+    void handleExceptionDuringForwardingRequest(Action action, HttpRequest request, ResponseWriter responseWriter, Throwable exception) {
+        if (connectionException(exception)) {
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setLogLevel(TRACE)
+                    .setMessageFormat("failed to connect to remote socket while forwarding request{}for action{}")
+                    .setArguments(request, action)
+                    .setThrowable(exception)
+            );
+            returnNotFound(responseWriter, request, "failed to connect to remote socket while forwarding request");
+        } else if (sslHandshakeException(exception)) {
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(LogEntry.LogMessageType.EXCEPTION)
+                    .setLogLevel(Level.ERROR)
+                    .setHttpRequest(request)
+                    .setMessageFormat("TLS handshake exception while forwarding request{}for action{}")
+                    .setArguments(request, action)
+                    .setThrowable(exception)
+            );
+            returnNotFound(responseWriter, request, "TLS handshake exception while forwarding request");
         } else {
-            httpStateHandler.log(new RequestLogEntry(request));
-            mockServerLogger.info(EXPECTATION_NOT_MATCHED, request, "no expectation for:{}returning response:{}", request, notFoundResponse());
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(EXCEPTION)
+                    .setLogLevel(Level.ERROR)
+                    .setHttpRequest(request)
+                    .setMessageFormat(exception.getMessage())
+                    .setThrowable(exception)
+            );
+            returnNotFound(responseWriter, request, null);
+        }
+    }
+
+    void writeForwardActionResponse(final HttpResponse response, final ResponseWriter responseWriter, final HttpRequest request, final Action action, boolean synchronous) {
+        try {
+            responseWriter.writeResponse(request, response, false);
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(FORWARDED_REQUEST)
+                    .setLogLevel(Level.INFO)
+                    .setHttpRequest(request)
+                    .setHttpResponse(response)
+                    .setExpectation(request, response)
+                    .setMessageFormat("returning response:{}for forwarded request\n\n in json:{}\n\n in curl:{}for action:{}")
+                    .setArguments(response, response, httpRequestToCurlSerializer.toCurl(request), action)
+            );
+        } catch (Throwable throwable) {
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(EXCEPTION)
+                    .setLogLevel(Level.ERROR)
+                    .setHttpRequest(request)
+                    .setMessageFormat(throwable.getMessage())
+                    .setThrowable(throwable)
+            );
+        }
+    }
+
+    private void returnNotFound(ResponseWriter responseWriter, HttpRequest request, String error) {
+        HttpResponse response = notFoundResponse();
+        if (request.getHeaders().containsEntry(httpStateHandler.getUniqueLoopPreventionHeaderName(), httpStateHandler.getUniqueLoopPreventionHeaderValue())) {
+            response.withHeader(httpStateHandler.getUniqueLoopPreventionHeaderName(), httpStateHandler.getUniqueLoopPreventionHeaderValue());
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setLogLevel(TRACE)
+                    .setHttpRequest(request)
+                    .setMessageFormat("no expectation for:{}returning response:{}")
+                    .setArguments(request, notFoundResponse())
+            );
+        } else if (isNotBlank(error)) {
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(EXPECTATION_NOT_MATCHED_RESPONSE)
+                    .setLogLevel(Level.INFO)
+                    .setHttpRequest(request)
+                    .setHttpResponse(notFoundResponse())
+                    .setMessageFormat("error:{}handling request:{}returning response:{}")
+                    .setArguments(error, request, notFoundResponse())
+            );
+        } else {
+            mockServerLogger.logEvent(
+                new LogEntry()
+                    .setType(EXPECTATION_NOT_MATCHED_RESPONSE)
+                    .setLogLevel(Level.INFO)
+                    .setHttpRequest(request)
+                    .setHttpResponse(notFoundResponse())
+                    .setMessageFormat("no expectation for:{}returning response:{}")
+                    .setArguments(request, notFoundResponse())
+            );
         }
         responseWriter.writeResponse(request, response, false);
     }
+
+    private HttpResponseActionHandler getHttpResponseActionHandler() {
+        if (httpResponseActionHandler == null) {
+            httpResponseActionHandler = new HttpResponseActionHandler();
+        }
+        return httpResponseActionHandler;
+    }
+
+    private HttpResponseTemplateActionHandler getHttpResponseTemplateActionHandler() {
+        if (httpResponseTemplateActionHandler == null) {
+            httpResponseTemplateActionHandler = new HttpResponseTemplateActionHandler(mockServerLogger);
+        }
+        return httpResponseTemplateActionHandler;
+    }
+
+    private HttpResponseClassCallbackActionHandler getHttpResponseClassCallbackActionHandler() {
+        if (httpResponseClassCallbackActionHandler == null) {
+            httpResponseClassCallbackActionHandler = new HttpResponseClassCallbackActionHandler(mockServerLogger);
+        }
+        return httpResponseClassCallbackActionHandler;
+    }
+
+    private HttpResponseObjectCallbackActionHandler getHttpResponseObjectCallbackActionHandler() {
+        if (httpResponseObjectCallbackActionHandler == null) {
+            httpResponseObjectCallbackActionHandler = new HttpResponseObjectCallbackActionHandler(httpStateHandler);
+        }
+        return httpResponseObjectCallbackActionHandler;
+    }
+
+    private HttpForwardActionHandler getHttpForwardActionHandler() {
+        if (httpForwardActionHandler == null) {
+            httpForwardActionHandler = new HttpForwardActionHandler(mockServerLogger, httpClient);
+        }
+        return httpForwardActionHandler;
+    }
+
+    private HttpForwardTemplateActionHandler getHttpForwardTemplateActionHandler() {
+        if (httpForwardTemplateActionHandler == null) {
+            httpForwardTemplateActionHandler = new HttpForwardTemplateActionHandler(mockServerLogger, httpClient);
+        }
+        return httpForwardTemplateActionHandler;
+    }
+
+    private HttpForwardClassCallbackActionHandler getHttpForwardClassCallbackActionHandler() {
+        if (httpForwardClassCallbackActionHandler == null) {
+            httpForwardClassCallbackActionHandler = new HttpForwardClassCallbackActionHandler(mockServerLogger, httpClient);
+        }
+        return httpForwardClassCallbackActionHandler;
+    }
+
+    private HttpForwardObjectCallbackActionHandler getHttpForwardObjectCallbackActionHandler() {
+        if (httpForwardObjectCallbackActionHandler == null) {
+            httpForwardObjectCallbackActionHandler = new HttpForwardObjectCallbackActionHandler(httpStateHandler, httpClient);
+        }
+        return httpForwardObjectCallbackActionHandler;
+    }
+
+    private HttpOverrideForwardedRequestActionHandler getHttpOverrideForwardedRequestCallbackActionHandler() {
+        if (httpOverrideForwardedRequestCallbackActionHandler == null) {
+            httpOverrideForwardedRequestCallbackActionHandler = new HttpOverrideForwardedRequestActionHandler(mockServerLogger, httpClient);
+        }
+        return httpOverrideForwardedRequestCallbackActionHandler;
+    }
+
+    private HttpErrorActionHandler getHttpErrorActionHandler() {
+        if (httpErrorActionHandler == null) {
+            httpErrorActionHandler = new HttpErrorActionHandler();
+        }
+        return httpErrorActionHandler;
+    }
+
 }

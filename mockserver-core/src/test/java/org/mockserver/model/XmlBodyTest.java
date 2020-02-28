@@ -1,6 +1,5 @@
 package org.mockserver.model;
 
-import com.google.common.net.MediaType;
 import org.junit.Test;
 
 import java.nio.charset.Charset;
@@ -20,7 +19,7 @@ public class XmlBodyTest {
 
     @Test
     public void shouldAlwaysCreateNewObject() {
-        assertEquals(new XmlBody("some_body").xml("some_body"), xml("some_body"));
+        assertEquals(xml("some_body"), xml("some_body"));
         assertNotSame(xml("some_body"), xml("some_body"));
     }
 

@@ -22,7 +22,7 @@ public class HttpForwardTemplateActionHandler extends HttpForwardAction {
     }
 
     public HttpForwardActionResult handle(HttpTemplate httpTemplate, HttpRequest originalRequest) {
-        TemplateEngine templateEngine = null;
+        TemplateEngine templateEngine;
         switch (httpTemplate.getTemplateType()) {
             case VELOCITY:
                 templateEngine = getVelocityTemplateEngine();
@@ -36,7 +36,7 @@ public class HttpForwardTemplateActionHandler extends HttpForwardAction {
         if (templateEngine != null) {
             HttpRequest templatedRequest = templateEngine.executeTemplate(httpTemplate.getTemplate(), originalRequest, HttpRequestDTO.class);
             if (templatedRequest != null) {
-                return sendRequest(templatedRequest, null);
+                return sendRequest(templatedRequest, null, null);
             }
         }
 

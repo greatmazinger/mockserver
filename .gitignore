@@ -22,14 +22,17 @@ mods
 # Logs and databases #
 ######################
 *.log
+*.log.*
 *.sql
 *.sqlite
 test.csv
+TODO.md
+persistedExpectations.json
+mockserverInitialization.json
 
 # Runtime artifacts #
 #####################
 mockserver_keystore.jks
-mockserver.properties
 
 # OS generated files #
 ######################

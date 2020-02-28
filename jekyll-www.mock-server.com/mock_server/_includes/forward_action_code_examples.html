@@ -34,6 +34,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         console.log(error);
     }
 );</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
     <button class="accordion inner">REST API</button>
     <div class="panel">
@@ -47,6 +48,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         "scheme": "HTTP"
     }
 }'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
 </div>
 <button id="button_forward_exactly_in_https" class="accordion">forward exact request in HTTPS</button>
@@ -85,6 +87,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         console.log(error);
     }
 );</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
     <button class="accordion inner">REST API</button>
     <div class="panel">
@@ -98,6 +101,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         "scheme": "HTTPS"
     }
 }'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
 </div>
 <button id="button_forward_overridden" class="accordion">forward overridden request</button>
@@ -140,6 +144,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         console.log(error);
     }
 );</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
     <button class="accordion inner">REST API</button>
     <div class="panel">
@@ -156,6 +161,146 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         }
     }
 }'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
+    </div>
+</div>
+<button id=" button_forward_overridden_with_resp" class="accordion">forward overridden request and change response</button>
+<div class="panel">
+    <button class="accordion inner">Java</button>
+    <div class="panel">
+        <pre class="prettyprint lang-java code"><code class="code">new MockServerClient("localhost", 1080)
+    .when(
+        request()
+            .withPath("/some/path")
+    )
+    .forward(
+        forwardOverriddenRequest(
+            request()
+                .withPath("/some/other/path")
+                .withHeader("Host", "target.host.com"),
+            response()
+                .withBody("some_overridden_body")
+        )
+    );</code></pre>
+    </div>
+    <button class="accordion inner">JavaScript</button>
+    <div class="panel">
+        <pre class="prettyprint lang-javascript code"><code class="code">var mockServerClient = require('mockserver-client').mockServerClient;
+mockServerClient("localhost", 1080).mockAnyResponse({
+    "httpRequest": {
+        "path": "/some/path"
+    },
+    "httpOverrideForwardedRequest": {
+        "httpRequest": {
+            "path": "/some/other/path",
+            "headers": {
+                "Host": ["target.host.com"]
+            }
+        },
+        "httpResponse": {
+            "body": "some_overridden_body"
+        }
+    }
+}).then(
+    function () {
+        console.log("expectation created");
+    },
+    function (error) {
+        console.log(error);
+    }
+);</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
+    </div>
+    <button class="accordion inner">REST API</button>
+    <div class="panel">
+        <pre class="prettyprint code"><code class="code">curl -v -X PUT "http://localhost:1080/mockserver/expectation" -d '{
+    "httpRequest": {
+        "path": "/some/path"
+    },
+    "httpOverrideForwardedRequest": {
+        "httpRequest": {
+            "path": "/some/other/path",
+            "headers": {
+                "Host": ["target.host.com"]
+            }
+        },
+        "httpResponse": {
+            "body": "some_overridden_body"
+        }
+    }
+}'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
+    </div>
+</div>
+<button id="button_forward_overridden_with_socket_address" class="accordion">forward overridden request and change host and port</button>
+<div class="panel">
+    <button class="accordion inner">Java</button>
+    <div class="panel">
+        <pre class="prettyprint lang-java code"><code class="code">new MockServerClient("localhost", 1080)
+    .when(
+        request()
+            .withPath("/some/path")
+    )
+    .forward(
+        forwardOverriddenRequest(
+            request()
+                .withPath("/some/other/path")
+                .withHeader("Host", "any.host.com")
+                .withSocketAddress("target.host.com", 1234, SocketAddress.Scheme.HTTPS)
+        )
+    );</code></pre>
+    </div>
+    <button class="accordion inner">JavaScript</button>
+    <div class="panel">
+        <pre class="prettyprint lang-javascript code"><code class="code">var mockServerClient = require('mockserver-client').mockServerClient;
+mockServerClient("localhost", 1080).mockAnyResponse({
+    "httpRequest": {
+        "path": "/some/path"
+    },
+    "httpOverrideForwardedRequest": {
+        "httpRequest": {
+            "path": "/some/other/path",
+            "headers": {
+                "Host": ["any.host.com"]
+            },
+            "socketAddress": {
+                "host": "target.host.com",
+                "port": 1234,
+                "scheme": "HTTPS"
+            }
+        }
+    }
+}).then(
+    function () {
+        console.log("expectation created");
+    },
+    function (error) {
+        console.log(error);
+    }
+);</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
+    </div>
+    <button class="accordion inner">REST API</button>
+    <div class="panel">
+        <pre class="prettyprint code"><code class="code">curl -v -X PUT "http://localhost:1080/mockserver/expectation" -d '{
+    "httpRequest": {
+        "path": "/some/path"
+    },
+    "httpOverrideForwardedRequest": {
+        "httpRequest": {
+            "path": "/some/other/path",
+            "headers": {
+                "Host": ["any.host.com"]
+            },
+            "socketAddress": {
+                "host": "target.host.com",
+                "port": 1234,
+                "scheme": "HTTPS"
+            }
+        }
+    }
+}'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
 </div>
 <button id="button_forward_overridden_with_delay" class="accordion">forward overridden request with delay</button>
@@ -203,6 +348,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         console.log(error);
     }
 );</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
     <button class="accordion inner">REST API</button>
     <div class="panel">
@@ -224,6 +370,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         }
     }
 }'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
 </div>
 <button id="button_javascript_templated_forward" class="accordion">javascript templated forward</button>
@@ -283,6 +430,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         console.log(error);
     }
 );</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
     <button class="accordion inner">REST API</button>
     <div class="panel">
@@ -304,6 +452,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         "templateType": "JAVASCRIPT"
     }
 }'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
 </div>
 <button id="button_javascript_templated_forward_with_delay" class="accordion">javascript templated forward with delay</button>
@@ -367,6 +516,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         console.log(error);
     }
 );</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
     <button class="accordion inner">REST API</button>
     <div class="panel">
@@ -391,6 +541,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         "delay": {"timeUnit": "SECONDS", "value": 20}
     }
 }'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
 </div>
 <button id="button_javascript_velocity_templated_forward" class="accordion">velocity templated forward</button>
@@ -456,6 +607,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         console.log(error);
     }
 );</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
     <button class="accordion inner">REST API</button>
     <div class="panel">
@@ -480,9 +632,10 @@ mockServerClient("localhost", 1080).mockAnyResponse({
         "templateType": "VELOCITY"
     }
 }'</code></pre>
+        <p>See <a href="https://app.swaggerhub.com/apis/jamesdbloom/mock-server-openapi/5.9.x#/expectation/put_expectation" target="_blank">REST API</a> for full JSON specification</p>
     </div>
 </div>
-<button id="button_forward_class_callback" class="accordion">class callback</button>
+<button id="button_forward_class_callback" class="accordion">class callback to override request & response</button>
 <div class="panel">
     <button class="accordion inner">Java</button>
     <div class="panel">
@@ -496,7 +649,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
             )
             .forward(
                 callback()
-                    .withCallbackClass("org.mockserver.examples.mockserver.CallbackActionExamples$TestExpectationForwardCallback")
+                    .withCallbackClass(TestExpectationForwardCallback.class)
             );
     }
 
@@ -549,8 +702,14 @@ mockServerClient("localhost", 1080).mockAnyResponse({
 }'</code></pre>
     </div>
     <p>To use a class callback MockServer must be able to <strong>load the class from the classpath</strong>.</p>
+    <p>The callback class must:</p>
+    <ul>
+        <li>implement <ul><li><strong><span class="this_value">org.mockserver.mock.action.ExpectationForwardCallback</span></strong> to dynamically override the <strong>request</strong> or</li><li><strong><span class="this_value">org.mockserver.mock.action.ExpectationForwardAndResponseCallback</span></strong> to dynamically override the <strong>request</strong> and the <strong>response</strong></li></ul></li>
+        <li>have a zero argument constructor</li>
+        <li>be available in the classpath of the MockServer</li>
+    </ul>
 
-    <p>If MockServer is started using the <a href="/mock_server/running_mock_server.html#junit_rule">JUnit @Rule</a> <strong>org.mockserver.junit.MockServerRule</strong> or using <strong>org.mockserver.integration.ClientAndServer</strong> or directly using the <strong>org.mockserver.mockserver.MockServerBuilder</strong> then any class present in the main or test classpaths will be visible to MockServer.</p>
+    <p>If MockServer is started using the <a href="/mock_server/running_mock_server.html#junit_rule">JUnit 4 @Rule</a>, the <a href="/mock_server/running_mock_server.html#junit_test_extension">JUnit 5 Test Extension</a>, <a href="/mock_server/running_mock_server.html#client_api">ClientAndServer</a> or directly using <span class="inline_code">org.mockserver.netty.MockServer</span> then any class present in the main or test classpaths will be visible to MockServer.</p>
 
     <p>If MockServer is started using the <a href="/mock_server/running_mock_server.html#maven_plugin">maven plugin</a> only the non-forked goals (such as <span class="element_value">runAndWait</span> and <span class="element_value">start</span>) will be able to load classes from the main and test classpaths.  It is possible to use classes from a separate maven dependency, however, this dependency must be specified in the plugin configuration <span class="element">dependencies</span> section.  Any dependency added to the plugin configuration <span class="element">dependencies</span> section will then be visible to MockServer run using both forked and non-forked goals.</p>
 
@@ -559,7 +718,7 @@ mockServerClient("localhost", 1080).mockAnyResponse({
     <pre><code class="code xml"> &lt;<span class="element">plugin</span>&gt;
      &lt;<span class="element">groupId</span>&gt;<span class="element_value">org.mock-server</span>&lt;/<span class="element">groupId</span>&gt;
      &lt;<span class="element">artifactId</span>&gt;<span class="element_value">mockserver-maven-plugin</span>&lt;/<span class="element">artifactId</span>&gt;
-     &lt;<span class="element">version</span>&gt;<span class="element_value">5.6.1</span>&lt;/<span class="element">version</span>&gt;
+     &lt;<span class="element">version</span>&gt;<span class="element_value">5.9.0</span>&lt;/<span class="element">version</span>&gt;
      &lt;<span class="element">configuration</span>&gt;
         &lt;<span class="element">serverPort</span>&gt;<span class="element_value">1080</span>&lt;/<span class="element">serverPort</span>&gt;
         &lt;<span class="element">logLevel</span>&gt;<span class="element_value">DEBUG</span>&lt;/<span class="element">logLevel</span>&gt;
@@ -591,11 +750,11 @@ mockServerClient("localhost", 1080).mockAnyResponse({
  &lt;/<span class="element">plugin</span>&gt;</code></pre>
 
     <p>If MockServer is started using the <a href="/mock_server/running_mock_server.html#running_from_command_line">command line</a> then the callback classes must be added to the JVM using the classpath command line switch (<strong>cp</strong> or <strong>classpath</strong>). The <strong>classpath</strong> switch is ignored by the JVM if the
-        <strong>jar</strong> switch is used. So to run the MockServer from the command line directly (with mockserver-netty-5.6.1-jar-with-dependencies.jar) you must specify the <strong>org.mockserver.cli.Main</strong> main class specifically and not use the <strong>jar</strong> switch as follows.</p>
+        <strong>jar</strong> switch is used. So to run the MockServer from the command line directly (with mockserver-netty-5.9.0-jar-with-dependencies.jar) you must specify the <strong>org.mockserver.cli.Main</strong> main class specifically and not use the <strong>jar</strong> switch as follows.</p>
 
-    <pre><code class="code">java -Dfile.encoding=UTF-8 -cp mockserver-netty-5.6.1-jar-with-dependencies.jar:my-callback-dependency.jar org.mockserver.cli.Main -serverPort 1080</code></pre>
+    <pre><code class="code">java -Dfile.encoding=UTF-8 -cp mockserver-netty-5.9.0-jar-with-dependencies.jar:my-callback-dependency.jar org.mockserver.cli.Main -serverPort 1080</code></pre>
 </div>
-<button id="button_forward_method_or_closure_callback" class="accordion">method / closure callback</button>
+<button id="button_forward_method_or_closure_callback" class="accordion">method / closure callback to override request</button>
 <div class="panel">
     <button class="accordion inner">Java 7</button>
     <div class="panel">
@@ -640,4 +799,69 @@ mockServerClient("localhost", 1080).mockAnyResponse({
                     .withBody("a_callback_request")
     );</code></pre>
     </div>
+    <p>When using <span class="inline_code">org.mockserver.client.MockServerClient</span> each method / closure callback has a separate web socket client.  To ensure the number of total threads does not grow too large for large numbers of method / closure callback expectations the default event loop thread pool for the web socket client is kept fairly low.  However, if an extremely large load is matched against a single method / closure callback expectation the event loop thread pool may not be large enough for its web socket client.</p>
+    <p>The number of threads for the event loop thread pool for each web socket client (i.e. for each expectation with a method / closure callback) <a href="/mock_server/configuration_properties.html#button_configuration_web_socket_event_loop_thread_count">can be configured and is described in the configuration section</a>.</p>
+</div>
+<button id="button_forward_method_or_closure_callback_with_resp" class="accordion">method / closure callback to override request & response</button>
+<div class="panel">
+    <button class="accordion inner">Java 7</button>
+    <div class="panel">
+        <pre class="prettyprint lang-java code"><code class="code">new MockServerClient("localhost", 1080)
+    .when(
+        request()
+            .withPath("/some/path")
+    )
+    .forward(
+        new ExpectationForwardCallback() {
+            @Override
+            public HttpRequest handle(HttpRequest httpRequest) throws Exception {
+                return request()
+                    .withPath(httpRequest.getPath())
+                    .withMethod("POST")
+                    .withHeaders(
+                        header("x-callback", "test_callback_header"),
+                        header("Content-Length", "a_callback_request".getBytes(UTF_8).length),
+                        header("Connection", "keep-alive")
+                    )
+                    .withBody("a_callback_request");
+            }
+        },
+        new ExpectationForwardAndResponseCallback() {
+            @Override
+            public HttpResponse handle(HttpRequest httpRequest, HttpResponse httpResponse) throws Exception {
+                return httpResponse
+                    .withHeader("x-response-test", "x-response-test")
+                    .removeHeader(CONTENT_LENGTH.toString())
+                    .withBody("some_overridden_response_body");
+            }
+        }
+    );</code></pre>
+    </div>
+    <button class="accordion inner">Java 8+</button>
+    <div class="panel">
+        <pre class="prettyprint lang-java code"><code class="code">new MockServerClient("localhost", 1080)
+    .when(
+        request()
+            .withPath("/some/path")
+    )
+    .forward(
+        httpRequest ->
+            request()
+                .withPath(httpRequest.getPath())
+                .withMethod("POST")
+                .withHeaders(
+                    header("x-callback", "test_callback_header"),
+                    header("Content-Length", "a_callback_request".getBytes(UTF_8).length),
+                    header("Connection", "keep-alive")
+                )
+                .withBody("a_callback_request"),
+        (httpRequest, httpResponse) ->
+            httpResponse
+                .withHeader("x-response-test", "x-response-test")
+                .removeHeader(CONTENT_LENGTH.toString())
+                .withBody("some_overridden_response_body")
+    );</code></pre>
+    </div>
+    <p>When using <span class="inline_code">org.mockserver.client.MockServerClient</span> each method / closure callback has a separate web socket client.  To ensure the number of total threads does not grow too large for large numbers of method / closure callback expectations the default event loop thread pool for the web socket client is kept fairly low.  However, if an extremely large load is matched against a single method / closure callback expectation the event loop thread pool may not be large enough for its web socket client.</p>
+    <p>The number of threads for the event loop thread pool for each web socket client (i.e. for each expectation with a method / closure callback) <a href="/mock_server/configuration_properties.html#button_configuration_web_socket_event_loop_thread_count">can be configured and is described in the configuration section</a>.</p>
 </div>

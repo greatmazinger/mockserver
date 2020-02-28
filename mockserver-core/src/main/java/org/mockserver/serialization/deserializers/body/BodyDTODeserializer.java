@@ -3,29 +3,36 @@ package org.mockserver.serialization.deserializers.body;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
-import com.google.common.net.MediaType;
-import org.mockserver.serialization.Base64Converter;
-import org.mockserver.serialization.model.*;
+import org.mockserver.log.model.LogEntry;
 import org.mockserver.logging.MockServerLogger;
 import org.mockserver.matchers.MatchType;
 import org.mockserver.model.*;
+import org.mockserver.serialization.ObjectMapperFactory;
+import org.mockserver.serialization.model.*;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.UnsupportedCharsetException;
+import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-import static org.mockserver.model.NottableString.string;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
+import static org.slf4j.event.Level.TRACE;
 
 /**
  * @author jamesdbloom
  */
 public class BodyDTODeserializer extends StdDeserializer<BodyDTO> {
 
-    private static Map<String, Body.Type> fieldNameToType = new HashMap<>();
+    private static final Map<String, Body.Type> fieldNameToType = new HashMap<>();
+    private static final Base64.Decoder BASE64_DECODER = Base64.getDecoder();
+    private static ObjectMapper objectMapper;
+    private static ObjectMapper jsonBodyObjectMapper;
 
     static {
         fieldNameToType.put("base64Bytes".toLowerCase(), Body.Type.BINARY);
@@ -40,8 +47,7 @@ public class BodyDTODeserializer extends StdDeserializer<BodyDTO> {
         fieldNameToType.put("xpath".toLowerCase(), Body.Type.XPATH);
     }
 
-    private final MockServerLogger mockServerLogger = new MockServerLogger(BodyDTODeserializer.class);
-    private final Base64Converter base64Converter = new Base64Converter();
+    private static final MockServerLogger MOCK_SERVER_LOGGER = new MockServerLogger(BodyDTODeserializer.class);
 
     public BodyDTODeserializer() {
         super(BodyDTO.class);
@@ -51,92 +57,136 @@ public class BodyDTODeserializer extends StdDeserializer<BodyDTO> {
     public BodyDTO deserialize(JsonParser jsonParser, DeserializationContext ctxt) throws IOException {
         JsonToken currentToken = jsonParser.getCurrentToken();
         String valueJsonValue = "";
+        byte[] rawBytes = null;
         Body.Type type = null;
         boolean not = false;
-        boolean subString = false;
         MediaType contentType = null;
         Charset charset = null;
+        boolean subString = false;
         MatchType matchType = JsonBody.DEFAULT_MATCH_TYPE;
         Parameters parameters = null;
         if (currentToken == JsonToken.START_OBJECT) {
-            while (jsonParser.getCurrentToken() != JsonToken.END_OBJECT) {
-                jsonParser.nextToken();
-                if (jsonParser.getCurrentToken() == JsonToken.FIELD_NAME && jsonParser.getText().equalsIgnoreCase("type")) {
-                    jsonParser.nextToken();
-                    try {
-                        type = Body.Type.valueOf(jsonParser.getText());
-                    } catch (IllegalArgumentException iae) {
-                        mockServerLogger.trace("Ignoring invalid value for \"type\" field of \"" + jsonParser.getText() + "\"");
+            @SuppressWarnings("unchecked") Map<Object, Object> body = (Map<Object, Object>) ctxt.readValue(jsonParser, Map.class);
+            for (Map.Entry<Object, Object> entry : body.entrySet()) {
+                if (entry.getKey() instanceof String) {
+                    String key = (String) entry.getKey();
+                    if (key.equalsIgnoreCase("type")) {
+                        try {
+                            type = Body.Type.valueOf(String.valueOf(entry.getValue()));
+                        } catch (IllegalArgumentException iae) {
+                            MOCK_SERVER_LOGGER.logEvent(
+                                new LogEntry()
+                                    .setLogLevel(TRACE)
+                                    .setMessageFormat("ignoring invalid value for \"type\" field of \"" + entry.getValue() + "\"")
+                            );
+                        }
                     }
-                }
-                if (jsonParser.getCurrentToken() == JsonToken.FIELD_NAME && containsIgnoreCase(jsonParser.getText(), "string", "regex", "json", "jsonSchema", "jsonPath", "xml", "xmlSchema", "xpath", "base64Bytes") && type != Body.Type.PARAMETERS) {
-                    String fieldName = jsonParser.getText().toLowerCase();
-                    if (fieldNameToType.containsKey(fieldName)) {
-                        type = fieldNameToType.get(fieldName);
+                    if (containsIgnoreCase(key, "string", "regex", "json", "jsonSchema", "jsonPath", "xml", "xmlSchema", "xpath", "base64Bytes") && type != Body.Type.PARAMETERS) {
+                        String fieldName = String.valueOf(entry.getKey()).toLowerCase();
+                        if (fieldNameToType.containsKey(fieldName)) {
+                            type = fieldNameToType.get(fieldName);
+                        }
+                        if (Map.class.isAssignableFrom(entry.getValue().getClass())) {
+                            if (objectMapper == null) {
+                                objectMapper = ObjectMapperFactory.createObjectMapper();
+                            }
+                            valueJsonValue = objectMapper.writeValueAsString(entry.getValue());
+                        } else {
+                            valueJsonValue = String.valueOf(entry.getValue());
+                        }
                     }
-                    jsonParser.nextToken();
-                    if (jsonParser.getCurrentToken() == JsonToken.VALUE_STRING) {
-                        valueJsonValue = jsonParser.getText();
+                    if (containsIgnoreCase(key, "rawBytes", "base64Bytes")) {
+                        if (entry.getValue() instanceof String) {
+                            try {
+                                rawBytes = BASE64_DECODER.decode((String) entry.getValue());
+                            } catch (Throwable throwable) {
+                                MOCK_SERVER_LOGGER.logEvent(
+                                    new LogEntry()
+                                        .setLogLevel(TRACE)
+                                        .setMessageFormat("invalid base64 encoded rawBytes with value \"" + entry.getValue() + "\"")
+                                );
+                            }
+                        }
                     }
-                }
-                if (jsonParser.getCurrentToken() == JsonToken.FIELD_NAME && jsonParser.getText().equalsIgnoreCase("not")) {
-                    jsonParser.nextToken();
-                    not = Boolean.parseBoolean(jsonParser.getText());
-                }
-                if (jsonParser.getCurrentToken() == JsonToken.FIELD_NAME && jsonParser.getText().equalsIgnoreCase("matchType")) {
-                    jsonParser.nextToken();
-                    try {
-                        matchType = MatchType.valueOf(jsonParser.getText());
-                    } catch (IllegalArgumentException iae) {
-                        mockServerLogger.trace("Ignoring incorrect JsonBodyMatchType with value \"" + jsonParser.getText() + "\"");
+                    if (key.equalsIgnoreCase("not")) {
+                        not = Boolean.parseBoolean(String.valueOf(entry.getValue()));
                     }
-                }
-                if (jsonParser.getCurrentToken() == JsonToken.FIELD_NAME && jsonParser.getText().equalsIgnoreCase("subString")) {
-                    jsonParser.nextToken();
-                    try {
-                        subString = jsonParser.getBooleanValue();
-                    } catch (IllegalArgumentException uce) {
-                        mockServerLogger.trace("Ignoring unsupported boolean with value \"" + jsonParser.getText() + "\"");
+                    if (key.equalsIgnoreCase("matchType")) {
+                        try {
+                            matchType = MatchType.valueOf(String.valueOf(entry.getValue()));
+                        } catch (IllegalArgumentException iae) {
+                            MOCK_SERVER_LOGGER.logEvent(
+                                new LogEntry()
+                                    .setLogLevel(TRACE)
+                                    .setMessageFormat("ignoring incorrect JsonBodyMatchType with value \"" + entry.getValue() + "\"")
+                            );
+                        }
                     }
-                }
-                if (jsonParser.getCurrentToken() == JsonToken.FIELD_NAME && jsonParser.getText().equalsIgnoreCase("contentType")) {
-                    jsonParser.nextToken();
-                    try {
-                        contentType = MediaType.parse(jsonParser.getText());
-                    } catch (IllegalArgumentException uce) {
-                        mockServerLogger.trace("Ignoring unsupported MediaType with value \"" + jsonParser.getText() + "\"");
+                    if (key.equalsIgnoreCase("subString")) {
+                        try {
+                            subString = Boolean.parseBoolean(String.valueOf(entry.getValue()));
+                        } catch (IllegalArgumentException uce) {
+                            MOCK_SERVER_LOGGER.logEvent(
+                                new LogEntry()
+                                    .setLogLevel(TRACE)
+                                    .setMessageFormat("ignoring unsupported boolean with value \"" + entry.getValue() + "\"")
+                            );
+                        }
                     }
-                }
-                if (jsonParser.getCurrentToken() == JsonToken.FIELD_NAME && jsonParser.getText().equalsIgnoreCase("charset")) {
-                    jsonParser.nextToken();
-                    try {
-                        charset = Charset.forName(jsonParser.getText());
-                    } catch (UnsupportedCharsetException uce) {
-                        mockServerLogger.trace("Ignoring unsupported Charset with value \"" + jsonParser.getText() + "\"");
-                    } catch (IllegalCharsetNameException icne) {
-                        mockServerLogger.trace("Ignoring invalid Charset with value \"" + jsonParser.getText() + "\"");
+                    if (key.equalsIgnoreCase("contentType")) {
+                        try {
+                            String mediaTypeHeader = String.valueOf(entry.getValue());
+                            if (isNotBlank(mediaTypeHeader)) {
+                                contentType = MediaType.parse(mediaTypeHeader);
+                            }
+                        } catch (IllegalArgumentException uce) {
+                            MOCK_SERVER_LOGGER.logEvent(
+                                new LogEntry()
+                                    .setLogLevel(TRACE)
+                                    .setMessageFormat("ignoring unsupported MediaType with value \"" + entry.getValue() + "\"")
+                            );
+                        }
                     }
-                }
-                if (jsonParser.getCurrentToken() == JsonToken.FIELD_NAME && jsonParser.getText().equalsIgnoreCase("parameters")) {
-                    jsonParser.nextToken();
-                    parameters = jsonParser.readValueAs(Parameters.class);
+                    if (key.equalsIgnoreCase("charset")) {
+                        try {
+                            charset = Charset.forName(String.valueOf(entry.getValue()));
+                        } catch (UnsupportedCharsetException uce) {
+                            MOCK_SERVER_LOGGER.logEvent(
+                                new LogEntry()
+                                    .setLogLevel(TRACE)
+                                    .setMessageFormat("ignoring unsupported Charset with value \"" + entry.getValue() + "\"")
+                            );
+                        } catch (IllegalCharsetNameException icne) {
+                            MOCK_SERVER_LOGGER.logEvent(
+                                new LogEntry()
+                                    .setLogLevel(TRACE)
+                                    .setMessageFormat("ignoring invalid Charset with value \"" + entry.getValue() + "\"")
+                            );
+                        }
+                    }
+                    if (key.equalsIgnoreCase("parameters")) {
+                        if (objectMapper == null) {
+                            objectMapper = ObjectMapperFactory.createObjectMapper();
+                        }
+                        parameters = objectMapper.readValue(objectMapper.writeValueAsString(entry.getValue()), Parameters.class);
+                    }
                 }
             }
             if (type != null) {
                 switch (type) {
                     case BINARY:
                         if (contentType != null) {
-                            return new BinaryBodyDTO(new BinaryBody(base64Converter.base64StringToBytes(valueJsonValue), contentType), not);
+                            return new BinaryBodyDTO(new BinaryBody(rawBytes, contentType), not);
                         } else {
-                            return new BinaryBodyDTO(new BinaryBody(base64Converter.base64StringToBytes(valueJsonValue)), not);
+                            return new BinaryBodyDTO(new BinaryBody(rawBytes), not);
                         }
                     case JSON:
                         if (contentType != null) {
-                            return new JsonBodyDTO(new JsonBody(valueJsonValue, contentType, matchType), not);
+                            return new JsonBodyDTO(new JsonBody(valueJsonValue, rawBytes, contentType, matchType), not);
                         } else if (charset != null) {
-                            return new JsonBodyDTO(new JsonBody(valueJsonValue, charset, matchType), not);
+                            return new JsonBodyDTO(new JsonBody(valueJsonValue, rawBytes, JsonBody.DEFAULT_CONTENT_TYPE.withCharset(charset), matchType), not);
                         } else {
-                            return new JsonBodyDTO(new JsonBody(valueJsonValue, matchType), not);
+                            return new JsonBodyDTO(new JsonBody(valueJsonValue, rawBytes, JsonBody.DEFAULT_CONTENT_TYPE, matchType), not);
                         }
                     case JSON_SCHEMA:
                         return new JsonSchemaBodyDTO(new JsonSchemaBody(valueJsonValue), not);
@@ -148,78 +198,40 @@ public class BodyDTODeserializer extends StdDeserializer<BodyDTO> {
                         return new RegexBodyDTO(new RegexBody(valueJsonValue), not);
                     case STRING:
                         if (contentType != null) {
-                            return new StringBodyDTO(new StringBody(valueJsonValue, subString, contentType), not);
+                            return new StringBodyDTO(new StringBody(valueJsonValue, rawBytes, subString, contentType), not);
                         } else if (charset != null) {
-                            return new StringBodyDTO(new StringBody(valueJsonValue, subString, charset), not);
+                            return new StringBodyDTO(new StringBody(valueJsonValue, rawBytes, subString, StringBody.DEFAULT_CONTENT_TYPE.withCharset(charset)), not);
                         } else {
-                            return new StringBodyDTO(new StringBody(valueJsonValue, subString), not);
+                            return new StringBodyDTO(new StringBody(valueJsonValue, rawBytes, subString, null), not);
                         }
                     case XML:
                         if (contentType != null) {
-                            return new XmlBodyDTO(new XmlBody(valueJsonValue, contentType), not);
+                            return new XmlBodyDTO(new XmlBody(valueJsonValue, rawBytes, contentType), not);
                         } else if (charset != null) {
-                            return new XmlBodyDTO(new XmlBody(valueJsonValue, charset), not);
+                            return new XmlBodyDTO(new XmlBody(valueJsonValue, rawBytes, XmlBody.DEFAULT_CONTENT_TYPE.withCharset(charset)), not);
                         } else {
-                            return new XmlBodyDTO(new XmlBody(valueJsonValue), not);
+                            return new XmlBodyDTO(new XmlBody(valueJsonValue, rawBytes, XmlBody.DEFAULT_CONTENT_TYPE), not);
                         }
                     case XML_SCHEMA:
                         return new XmlSchemaBodyDTO(new XmlSchemaBody(valueJsonValue), not);
                     case XPATH:
                         return new XPathBodyDTO(new XPathBody(valueJsonValue), not);
                 }
+            } else if (body.size() > 0) {
+                if (jsonBodyObjectMapper == null) {
+                    jsonBodyObjectMapper = new ObjectMapper();
+                }
+                return new JsonBodyDTO(new JsonBody(jsonBodyObjectMapper.writeValueAsString(body), JsonBody.DEFAULT_MATCH_TYPE), false);
             }
+        } else if (currentToken == JsonToken.START_ARRAY) {
+            if (jsonBodyObjectMapper == null) {
+                jsonBodyObjectMapper = new ObjectMapper();
+            }
+            return new JsonBodyDTO(new JsonBody(jsonBodyObjectMapper.writeValueAsString(ctxt.readValue(jsonParser, List.class)), JsonBody.DEFAULT_MATCH_TYPE), false);
         } else if (currentToken == JsonToken.VALUE_STRING) {
             return new StringBodyDTO(new StringBody(jsonParser.getText()));
         }
         return null;
-    }
-
-    private NottableString parseNottableString(JsonParser jsonParser) throws IOException {
-        NottableString nottableString = null;
-
-        if (jsonParser.getCurrentToken() == JsonToken.START_OBJECT) {
-
-            boolean isNot = false;
-            String value = "";
-
-            JsonToken currentToken;
-            while ((currentToken = jsonParser.nextToken()) != JsonToken.END_OBJECT) {
-                switch (currentToken) {
-                    case START_ARRAY:
-                        break;
-                    case START_OBJECT:
-                        break;
-                    case END_OBJECT:
-                        break;
-                    case FIELD_NAME:
-                        if (jsonParser.getText().equalsIgnoreCase("not")) {
-                            isNot = jsonParser.nextToken() == JsonToken.VALUE_TRUE;
-                        } else if (jsonParser.getText().equalsIgnoreCase("value")) {
-                            jsonParser.nextToken();
-                            value = jsonParser.getText();
-                        }
-                        break;
-                    case VALUE_TRUE:
-                        break;
-                    case VALUE_STRING:
-                        break;
-                }
-            }
-
-            nottableString = string(value, isNot);
-
-        } else if (jsonParser.getCurrentToken() == JsonToken.VALUE_STRING) {
-
-            String text = jsonParser.getText();
-            if (text.startsWith("!")) {
-                nottableString = NottableString.not(text.replaceFirst("^!", ""));
-            } else {
-                nottableString = string(text);
-            }
-
-        }
-
-        return nottableString;
     }
 
     private boolean containsIgnoreCase(String valueToMatch, String... listOfValues) {

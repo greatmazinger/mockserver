@@ -1,22 +1,21 @@
 package org.mockserver.codec;
 
-import com.google.common.net.MediaType;
 import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http.*;
-import org.hamcrest.core.Is;
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpVersion;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockserver.model.Body;
-import org.mockserver.model.Cookie;
-import org.mockserver.model.Header;
-import org.mockserver.model.HttpResponse;
+import org.mockserver.logging.MockServerLogger;
+import org.mockserver.model.*;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.core.Is.is;
@@ -28,16 +27,17 @@ import static org.mockserver.model.StringBody.exact;
 /**
  * @author jamesdbloom
  */
+@SuppressWarnings("rawtypes")
 public class MockServerResponseDecoderTest {
 
-    private MockServerResponseDecoder mockServerResponseDecoder;
+    private NettyToMockServerResponseDecoder mockServerResponseDecoder;
     private List<Object> output;
     private FullHttpResponse fullHttpResponse;
 
     @Before
     public void setupFixture() {
-        mockServerResponseDecoder = new MockServerResponseDecoder();
-        output = new ArrayList<Object>();
+        mockServerResponseDecoder = new NettyToMockServerResponseDecoder(new MockServerLogger());
+        output = new ArrayList<>();
     }
 
     @Test
@@ -67,8 +67,8 @@ public class MockServerResponseDecoderTest {
         // then
         List<Header> headers = ((HttpResponse) output.get(0)).getHeaderList();
         assertThat(headers, containsInAnyOrder(
-                header("headerName1", "headerValue1_1", "headerValue1_2"),
-                header("headerName2", "headerValue2")
+            header("headerName1", "headerValue1_1", "headerValue1_2"),
+            header("headerName2", "headerValue2")
         ));
     }
 
@@ -85,10 +85,10 @@ public class MockServerResponseDecoderTest {
         // then
         List<Cookie> cookies = ((HttpResponse) output.get(0)).getCookieList();
         assertThat(cookies, containsInAnyOrder(
-                cookie("cookieName1", "cookieValue1"),
-                cookie("cookieName2", "cookieValue2"),
-                cookie("cookieName3", "cookieValue3_1"),
-                cookie("cookieName4", "cookieValue3_2")
+            cookie("cookieName1", "cookieValue1"),
+            cookie("cookieName2", "cookieValue2"),
+            cookie("cookieName3", "cookieValue3_1"),
+            cookie("cookieName4", "cookieValue3_2")
         ));
     }
 
@@ -104,8 +104,8 @@ public class MockServerResponseDecoderTest {
         // then
         List<Cookie> cookies = ((HttpResponse) output.get(0)).getCookieList();
         assertThat(cookies, containsInAnyOrder(
-                cookie("cookieName1", "cookie=Value1"),
-                cookie("cookieName2", "cookie==Value2")
+            cookie("cookieName1", "cookie=Value1"),
+            cookie("cookieName2", "cookie==Value2")
         ));
     }
 
@@ -113,14 +113,14 @@ public class MockServerResponseDecoderTest {
     public void shouldDecodeUTF8Body() {
         // given
         fullHttpResponse = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, Unpooled.wrappedBuffer("some_random_string".getBytes(UTF_8)));
-        fullHttpResponse.headers().add(CONTENT_TYPE, MediaType.create("text", "plain").toString());
+        fullHttpResponse.headers().add(CONTENT_TYPE, MediaType.create("text", "plain").withCharset(StandardCharsets.UTF_8).toString());
 
         // when
         mockServerResponseDecoder.decode(null, fullHttpResponse, output);
 
         // then
         Body body = ((HttpResponse) output.get(0)).getBody();
-        assertThat(body, Is.<Body>is(exact("some_random_string", MediaType.create("text", "plain"))));
+        assertThat(body, is(exact("some_random_string", MediaType.create("text", "plain").withCharset(StandardCharsets.UTF_8))));
     }
 
     @Test
@@ -134,7 +134,7 @@ public class MockServerResponseDecoderTest {
 
         // then
         Body body = ((HttpResponse) output.get(0)).getBody();
-        assertThat(body, Is.<Body>is(exact("我说中国话", MediaType.create("text", "plain").withCharset(StandardCharsets.UTF_16))));
+        assertThat(body, is(exact("我说中国话", MediaType.create("text", "plain").withCharset(StandardCharsets.UTF_16))));
     }
 
     @Test
@@ -148,7 +148,7 @@ public class MockServerResponseDecoderTest {
 
         // then
         Body body = ((HttpResponse) output.get(0)).getBody();
-        assertThat(body, Is.<Body>is(binary("some_random_bytes".getBytes(UTF_8))));
+        assertThat(body, is(binary("some_random_bytes".getBytes(UTF_8), MediaType.parse("image/jpeg"))));
     }
 
 }

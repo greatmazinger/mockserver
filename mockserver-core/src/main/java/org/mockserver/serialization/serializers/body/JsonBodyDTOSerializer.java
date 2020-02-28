@@ -28,6 +28,9 @@ public class JsonBodyDTOSerializer extends StdSerializer<JsonBodyDTO> {
         }
         jgen.writeStringField("type", jsonBodyDTO.getType().name());
         jgen.writeStringField("json", jsonBodyDTO.getJson());
+        if (jsonBodyDTO.getRawBytes() != null) {
+            jgen.writeObjectField("rawBytes", jsonBodyDTO.getRawBytes());
+        }
         if (jsonBodyDTO.getMatchType() != JsonBody.DEFAULT_MATCH_TYPE) {
             jgen.writeStringField("matchType", jsonBodyDTO.getMatchType().name());
         }

@@ -24,13 +24,13 @@ import java.util.concurrent.TimeUnit;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.same;
 import static org.mockito.Mockito.*;
 import static org.mockito.MockitoAnnotations.initMocks;
 import static org.mockserver.character.Character.NEW_LINE;
 import static org.mockserver.model.Cookie.cookie;
 import static org.mockserver.model.Header.header;
 import static org.mockserver.model.HttpRequest.request;
+import static org.mockserver.model.HttpResponse.response;
 import static org.mockserver.model.NottableString.string;
 import static org.mockserver.model.Parameter.param;
 import static org.mockserver.model.StringBody.exact;
@@ -49,12 +49,16 @@ public class ExpectationWithOverrideForwardedRequestSerializerTest {
             .withHeaders(new Header("headerName", "headerValue"))
             .withCookies(new Cookie("cookieName", "cookieValue")),
         Times.once(),
-        TimeToLive.exactly(TimeUnit.HOURS, 2l))
+        TimeToLive.exactly(TimeUnit.HOURS, 2L))
         .thenForward(
             new HttpOverrideForwardedRequest()
                 .withHttpRequest(
                     request("some_overridden_path")
                         .withBody("some_overridden_body")
+                )
+                .withHttpResponse(
+                    response("some_overridden_path")
+                        .withHeader("headerName", "headerValue")
                 )
                 .withDelay(new Delay(TimeUnit.SECONDS, 10))
         );
@@ -81,14 +85,18 @@ public class ExpectationWithOverrideForwardedRequestSerializerTest {
                         request("some_overridden_path")
                             .withBody("some_overridden_body")
                     )
+                    .withHttpResponse(
+                        response("some_overridden_path")
+                            .withHeader("headerName", "headerValue")
+                    )
                     .withDelay(new Delay(TimeUnit.SECONDS, 10))
             )
         )
         .setTimes(new org.mockserver.serialization.model.TimesDTO(Times.once()))
-        .setTimeToLive(new TimeToLiveDTO(TimeToLive.exactly(TimeUnit.HOURS, 2l)));
+        .setTimeToLive(new TimeToLiveDTO(TimeToLive.exactly(TimeUnit.HOURS, 2L)));
 
     @Rule
-    public ExpectedException thrown = ExpectedException.none();
+    public final ExpectedException thrown = ExpectedException.none();
 
     @Mock
     private ObjectMapper objectMapper;
@@ -122,6 +130,7 @@ public class ExpectationWithOverrideForwardedRequestSerializerTest {
     }
 
     @Test
+    @SuppressWarnings("RedundantArrayCreation")
     public void shouldSerializeArray() throws IOException {
         // given
         when(objectMapper.writerWithDefaultPrettyPrinter()).thenReturn(objectWriter);
@@ -155,7 +164,7 @@ public class ExpectationWithOverrideForwardedRequestSerializerTest {
         when(objectMapper.readValue(eq("requestBytes"), same(ExpectationDTO.class))).thenReturn(fullExpectationDTO);
 
         // when
-        Expectation[] expectations = expectationSerializer.deserializeArray("requestBytes");
+        Expectation[] expectations = expectationSerializer.deserializeArray("requestBytes", false);
 
         // then
         assertArrayEquals(new Expectation[]{fullExpectation, fullExpectation}, expectations);
@@ -191,6 +200,6 @@ public class ExpectationWithOverrideForwardedRequestSerializerTest {
             "]");
 
         // when
-        expectationSerializer.deserializeArray("requestBytes");
+        expectationSerializer.deserializeArray("requestBytes", false);
     }
 }

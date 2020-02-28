@@ -8,16 +8,16 @@ import java.util.Objects;
 /**
  * @author jamesdbloom
  */
-public class ParameterBodyDTO extends BodyWithContentTypeDTO {
+public class ParameterBodyDTO extends BodyDTO {
 
-    private Parameters parameters;
+    private final Parameters parameters;
 
     public ParameterBodyDTO(ParameterBody parameterBody) {
         this(parameterBody, false);
     }
 
     public ParameterBodyDTO(ParameterBody parameterBody, Boolean not) {
-        super(parameterBody.getType(), not, parameterBody.getContentType());
+        super(parameterBody.getType(), not);
         parameters = parameterBody.getValue();
     }
 
@@ -38,12 +38,11 @@ public class ParameterBodyDTO extends BodyWithContentTypeDTO {
             return false;
         }
         ParameterBodyDTO that = (ParameterBodyDTO) o;
-        return Objects.equals(parameters, that.parameters) &&
-            Objects.equals(contentType, that.contentType);
+        return Objects.equals(parameters, that.parameters);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(parameters, contentType);
+        return Objects.hash(parameters);
     }
 }
